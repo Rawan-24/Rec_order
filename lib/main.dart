@@ -1,4 +1,6 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:grad_project/firebase_options.dart';
 import 'package:grad_project/screens/Home.dart';
 import 'package:grad_project/screens/Language_Selection.dart';
 import 'package:grad_project/screens/Sign_in.dart';
@@ -12,12 +14,16 @@ import 'package:grad_project/screens/PaymentScreen.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
 
-void main() {
+Future<void> main() async {
   runApp(ChangeNotifierProvider(
     create: (context) => CartProvider(),
     child: const MyApp(),
   ),
   );
+
+  await Firebase.initializeApp(    
+    options: DefaultFirebaseOptions.currentPlatform,
+);
 }
 
 class MyApp extends StatelessWidget {
