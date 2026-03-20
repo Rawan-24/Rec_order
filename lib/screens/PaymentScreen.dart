@@ -5,7 +5,7 @@ import 'package:grad_project/screens/TrackOrderScreen.dart';
 
 class PaymentScreen extends StatefulWidget {
   static const String routeName = "PaymentScreen";
-  PaymentScreen({super.key});
+  const PaymentScreen({super.key});
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
@@ -38,7 +38,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             const Center(
               child: CircleAvatar(
                 radius: 40,
-                backgroundColor: const Color(0xFFEB1B33),
+                backgroundColor: Color(0xFFEB1B33),
                 child: Icon(Icons.mic, color: Colors.white, size: 40),
               ),
             ),

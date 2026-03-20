@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "483240387834",
+    "project_id": "rec-order-b2b27",
+    "storage_bucket": "rec-order-b2b27.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:483240387834:android:f85b17a8d089d439a35543",
+        "android_client_info": {
+          "package_name": "com.example.grad_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApB8xwCK2JFGPoXpdqs-MBMlnjNbV1l0w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

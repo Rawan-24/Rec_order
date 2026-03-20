@@ -40,7 +40,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                 children: [
                   const CircleAvatar(
                     radius: 35,
-                    backgroundColor: const Color(0xFFEB1B33),
+                    backgroundColor: Color(0xFFEB1B33),
                     child: Icon(Icons.mic, color: Colors.white, size: 35),
                   ),
                   const SizedBox(height: 15),
@@ -53,7 +53,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.mic, color: const Color(0xFFEB1B33), size: 20),
+                        Icon(Icons.mic, color: Color(0xFFEB1B33), size: 20),
                         SizedBox(width: 10),
                         Text(
                           'Say "Where is my order?" or "Call driver"',
@@ -183,7 +183,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                           children: [
                             const CircleAvatar(
                               radius: 30,
-                              backgroundColor: const Color(0xFFEB1B33),
+                              backgroundColor: Color(0xFFEB1B33),
                               child: Text("JD", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                             ),
                             const SizedBox(width: 15),
@@ -309,7 +309,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                     SizedBox(width: 8),
                     Text(
                       "In Progress",
-                      style: TextStyle(color: const Color(0xFFEB1B33), fontWeight: FontWeight.w600, fontSize: 14),
+                      style: TextStyle(color: Color(0xFFEB1B33), fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                   ],
                 ),

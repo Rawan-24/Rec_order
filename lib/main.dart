@@ -6,16 +6,9 @@ import 'package:grad_project/screens/Sign_up.dart';
 import 'package:grad_project/screens/splash.dart';
 import 'package:grad_project/screens/tutorial1.dart';
 import 'package:provider/provider.dart';
-import 'package:grad_project/screens/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/CartScreen.dart';
-import 'package:grad_project/screens/Menu.dart';
-import 'package:grad_project/screens/MenuItem.dart';
-import 'package:grad_project/screens/MenuItemModel.dart';
 import 'package:grad_project/screens/PaymentScreen.dart';
-import 'package:grad_project/screens/Restaurant.dart';
-import 'package:grad_project/screens/RestaurantCard.dart';
-import 'package:grad_project/screens/RestaurantData.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
 

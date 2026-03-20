@@ -4,7 +4,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'Sign_in.dart';
 
 class VoiceOnboardingScreen extends StatefulWidget {
-  const VoiceOnboardingScreen({Key? key}) : super(key: key);
+  const VoiceOnboardingScreen({super.key});
 
   @override
   State<VoiceOnboardingScreen> createState() => _VoiceOnboardingScreenState();
