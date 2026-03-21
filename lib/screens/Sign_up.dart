@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 // password field deleted and sign up page navigate to the login
@@ -12,22 +13,52 @@ class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
- 
+ bool isLoading = false;
 
  
-  void _signUp() async {
-    if (_formKey.currentState!.validate()) {
-      // Save user info in SharedPreferences (for demo purposes)
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('username', _usernameController.text);
-      await prefs.setString('phone', _phoneController.text);
-      
+ void _signUp() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-      // Optionally, auto sign in
-      await prefs.setBool('staySignedIn', true);
+    setState(() { isLoading = true; });
 
-      // Navigate to home
-      Navigator.pushReplacementNamed(context, '/verfiy');
+    String phone = _phoneController.text.trim();
+
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: phone,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          await FirebaseAuth.instance.signInWithCredential(credential);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('username', _usernameController.text);
+          await prefs.setString('phone', phone);
+          await prefs.setBool('staySignedIn', true);
+          if (mounted) Navigator.pushReplacementNamed(context, '/home');
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          setState(() { isLoading = false; });
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Verification failed')));
+        },
+        codeSent: (String verificationId, int? resendToken) async {
+          setState(() { isLoading = false; });
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('username', _usernameController.text);
+          await prefs.setString('phone', phone);
+          
+          if (mounted) {
+            Navigator.pushReplacementNamed(
+              context, 
+              '/verfiy', 
+              arguments: verificationId, // Pass ID to next screen
+            );
+          }
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } catch (e) {
+      setState(() { isLoading = false; });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -97,8 +128,19 @@ class _SignUpPageState extends State<SignUpPage> {
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(20),
                     ),
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Enter username" : null,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Enter username";
+                      }
+                      // Regex ensures ONLY letters and spaces
+                      if (!RegExp(r'^[a-zA-Z\s]+$').hasMatch(value)) {
+                        return "Name can only contain letters";
+                      }
+                      if (value.length < 3) {
+                        return "Name must be at least 3 characters";
+                      }
+                      return null;
+                    },
                   ),
                 ),
 
@@ -136,8 +178,15 @@ class _SignUpPageState extends State<SignUpPage> {
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(20),
                     ),
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Enter phone number" : null,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Enter phone number";
+                      }
+                      if (!RegExp(r'^\+[1-9]\d{1,14}$').hasMatch(value.replaceAll(RegExp(r'\s|\(|\)|-'), ''))) {
+                        return "Format: +15551234567";
+                      }
+                      return null;
+                    },
                   ),
                 ),
 
@@ -151,7 +200,7 @@ class _SignUpPageState extends State<SignUpPage> {
                   width: double.infinity,
                   height: 60,
                   child: ElevatedButton(
-                    onPressed: _signUp,
+                    onPressed: isLoading ? null : _signUp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
@@ -159,13 +208,18 @@ class _SignUpPageState extends State<SignUpPage> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                     ),
-                    child: const Text(
-                      "Sign Up",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: isLoading 
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          "Sign Up",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                  
+                    
                   ),
                 ),
 

@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class VerificationScreen extends StatefulWidget {
@@ -23,15 +24,52 @@ class _VerificationScreenState extends State<VerificationScreen> {
     super.dispose();
   }
 
-  void _verifyAndNavigate() {
-    // Collect the code from all controllers
+    bool isLoading = false;
+
+  void _verifyAndNavigate() async {
     String otp = _controllers.map((e) => e.text).join();
     
-    // Check if all 6 digits are entered
     if (otp.length == 6) {
-      // Logic for actual verification would go here
-      Navigator.pushReplacementNamed(context, '/home');
+      setState(() { isLoading = true; });
+
+      // GET THE VERIFICATION ID PASSED FROM THE PREVIOUS SCREEN
+      final verificationId = ModalRoute.of(context)!.settings.arguments as String?;
+
+      if (verificationId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error: Verification ID missing. Please try signing in again."))
+        );
+        setState(() { isLoading = false; });
+        return;
+      }
+
+      try {
+        // Create a PhoneAuthCredential with the code
+        PhoneAuthCredential credential = PhoneAuthProvider.credential(
+          verificationId: verificationId, 
+          smsCode: otp
+        );
+
+        // Sign the user in
+        await FirebaseAuth.instance.signInWithCredential(credential);
+        
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      } on FirebaseAuthException catch (e) {
+        setState(() { isLoading = false; });
+        String errorMsg = e.code == 'invalid-verification-code'
+            ? 'The code you entered is incorrect.'
+            : e.message ?? 'Verification failed';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
+      } catch (e) {
+        setState(() { isLoading = false; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("An error occurred. Please try again.")));
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter all 6 digits."))
+      );
     }
+  
   }
 
   @override
@@ -120,19 +158,21 @@ class _VerificationScreenState extends State<VerificationScreen> {
               const Spacer(),
               
               // Verify Button
-              SizedBox(
+             SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: _verifyAndNavigate,
+                  onPressed: isLoading ? null : _verifyAndNavigate,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFEB1B33),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   ),
-                  child: const Text(
-                    "Verify",
-                    style: TextStyle(color: const Color(0xFFF4EDE4), fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  child: isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                        "Verify",
+                        style: TextStyle(color: const Color(0xFFF4EDE4), fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
                 ),
               ),
               const SizedBox(height: 20),
