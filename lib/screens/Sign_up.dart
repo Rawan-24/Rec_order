@@ -12,17 +12,16 @@ class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+ 
 
-  bool _obscurePassword = true;
-
+ 
   void _signUp() async {
     if (_formKey.currentState!.validate()) {
       // Save user info in SharedPreferences (for demo purposes)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('username', _usernameController.text);
       await prefs.setString('phone', _phoneController.text);
-      await prefs.setString('password', _passwordController.text);
+      
 
       // Optionally, auto sign in
       await prefs.setBool('staySignedIn', true);
@@ -142,55 +141,9 @@ class _SignUpPageState extends State<SignUpPage> {
                   ),
                 ),
 
-                const SizedBox(height: 25),
+               
 
-                /// Password
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    "Password",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withOpacity(0.08),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
-                  ),
-                  child: TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      hintText: "Enter password",
-                      prefixIcon: const Icon(Icons.lock),
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscurePassword
-                            ? Icons.visibility
-                            : Icons.visibility_off),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(20),
-                    ),
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Enter password" : null,
-                  ),
-                ),
-
+         
                 const SizedBox(height: 30),
 
                 /// Sign Up button
