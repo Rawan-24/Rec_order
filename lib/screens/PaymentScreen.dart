@@ -13,7 +13,7 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
   // State to track selected payment method
-  String selectedMethod = 'cash'; 
+  String selectedMethod = 'card'; // 'card' or 'cash'
   bool isVoiceConfirmed = false;
   @override
   Widget build(BuildContext context) {
@@ -65,7 +65,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
             const SizedBox(height: 15),
 
             // Payment Options
-          
+            _buildPaymentOption(
+              id: 'card',
+              title: "Credit / Debit Card",
+              subtitle: "Secure payment",
+              icon: Icons.credit_card,
+            ),
             const SizedBox(height: 10),
             _buildPaymentOption(
               id: 'cash',
@@ -77,10 +82,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
             const SizedBox(height: 30),
 
             // Conditional Card Details Section
-       
+            if (selectedMethod == 'card') ...[
+              const Text("Card Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 15),
+              _buildTextField("Card Number", "1234 5678 9012 3456"),
+              const SizedBox(height: 15),
+              Row(
+                children: [
+                  Expanded(child: _buildTextField("Expiry Date", "MM/YY")),
+                  const SizedBox(width: 15),
+                  Expanded(child: _buildTextField("CVV", "123")),
+                ],
+              ),
+              const SizedBox(height: 25),
+              const Text("Confirmation", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              _buildVoicePinButton(),
+            ],
 
-            
-         
+            const SizedBox(height: 20),
+            _buildSecurePaymentNote(),
             const SizedBox(height: 20),
             _buildOrderSummary(),
             const SizedBox(height: 100), // Padding for bottom button
@@ -122,8 +143,102 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
+  Widget _buildTextField(String label, String hint) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        TextField(
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(color: Colors.grey),
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+          ),
+        ),
+      ],
+    );
+  }
 
- 
+  Widget _buildVoicePinButton() {
+    // Define colors based on state
+    final Color backgroundColor = isVoiceConfirmed ? const Color(0xFFEB1B33) : Colors.white;
+    final Color contentColor = isVoiceConfirmed ? Colors.white : Colors.black87;
+    final Color subTextColor = isVoiceConfirmed ? Colors.white70 : Colors.grey;
+
+    return Material(
+      color: backgroundColor,
+      elevation: isVoiceConfirmed ? 0 : 2, // Slight shadow when white
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            isVoiceConfirmed = !isVoiceConfirmed; // Toggles the state for demo purposes
+          });
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            // Optional: Add a light border when white to match your "not selected" image
+            border: isVoiceConfirmed ? null : Border.all(color: Colors.black12),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.mic_none, color: contentColor, size: 28),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Voice PIN Confirmation",
+                      style: TextStyle(
+                        color: contentColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                    Text(
+                      "Speak your 4-digit PIN",
+                      style: TextStyle(
+                        color: subTextColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Only show the checkmark if confirmed
+              if (isVoiceConfirmed)
+                const Icon(
+                  Icons.check_circle_outline,
+                  color: Colors.white,
+                  size: 26,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  Widget _buildSecurePaymentNote() {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(color: Colors.green.withOpacity(0.05), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.green.withOpacity(0.2))),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_outline, color: Colors.green, size: 20),
+          SizedBox(width: 10),
+          Expanded(child: Text("Secure Payment\nYour payment information is encrypted and secure.", style: TextStyle(color: Colors.black54, fontSize: 12))),
+        ],
+      ),
+    );
+  }
 
   Widget _buildOrderSummary() {
     final cart = Provider.of<CartProvider>(context); // Sync money
