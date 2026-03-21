@@ -12,10 +12,10 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
 
   final TextEditingController phoneController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
+  
   final FlutterTts tts = FlutterTts();
   bool staySignedIn = false;
-  bool isPasswordHidden = true;
+ 
   @override
   void initState() {
     super.initState();
@@ -25,24 +25,24 @@ class _SignInScreenState extends State<SignInScreen> {
   Future speakInstructions() async {
     await tts.setLanguage("en-US");
     await tts.speak(
-        "Sign in page. Please enter your phone number and password. If you don't have an account, say sign up.");
+        "Sign in page. Please enter your phone number . If you don't have an account, say sign up.");
   }
 
   void signIn() async{
     String phone = phoneController.text;
-    String password = passwordController.text;
+   
 
-    if (phone.isEmpty || password.isEmpty) {
-      tts.speak("Please fill all fields");
-      return;
-    }
+  if (phone.isEmpty) {
+    tts.speak("Please enter your phone number");
+    return;
+  }
     // Get SharedPreferences instance
     final prefs = await SharedPreferences.getInstance();
 
     // Save checkbox value
     await prefs.setBool("staySignedIn", staySignedIn);
     // Navigate later to home page
-    Navigator.pushReplacementNamed(context, "/home");
+    Navigator.pushReplacementNamed(context, '/verfiy');
   }
 
   @override
@@ -135,57 +135,6 @@ class _SignInScreenState extends State<SignInScreen> {
               ),
 
               const SizedBox(height: 25),
-
-              /// Password label
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "Password",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              /// Password field
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.red.withOpacity(0.08),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    )
-                  ],
-                ),
-                child: TextField(
-                  controller: passwordController,
-                  obscureText: isPasswordHidden,
-                  decoration: InputDecoration(
-                    hintText: "Enter password",
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        isPasswordHidden ? Icons.visibility_off : Icons.visibility,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          isPasswordHidden = !isPasswordHidden;
-                        });
-                      },
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.all(20),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 10),
 
               /// stay signed in
               CheckboxListTile(

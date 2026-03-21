@@ -27,7 +27,7 @@ class _SignUpPageState extends State<SignUpPage> {
       await prefs.setBool('staySignedIn', true);
 
       // Navigate to home
-      Navigator.pushReplacementNamed(context, "/signin");
+      Navigator.pushReplacementNamed(context, '/verfiy');
     }
   }
 

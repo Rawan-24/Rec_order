@@ -5,6 +5,7 @@ import 'package:grad_project/screens/Home.dart';
 import 'package:grad_project/screens/Language_Selection.dart';
 import 'package:grad_project/screens/Sign_in.dart';
 import 'package:grad_project/screens/Sign_up.dart';
+import 'package:grad_project/screens/Verfiy.dart';
 import 'package:grad_project/screens/splash.dart';
 import 'package:grad_project/screens/tutorial1.dart';
 import 'package:provider/provider.dart';
@@ -51,6 +52,7 @@ class MyApp extends StatelessWidget {
         '/TrackOrderScreen': (context) => const TrackOrderScreen(),
         '/PaymentScreen': (context) => PaymentScreen(),
         '/tutorial1': (context) => const VoiceOnboardingScreen(),
+        '/verfiy': (context) => const VerificationScreen(),
 
       },
 
