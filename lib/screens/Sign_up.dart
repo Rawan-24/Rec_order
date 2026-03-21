@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+// password field deleted and sign up page navigate to the login
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
 
@@ -27,7 +27,7 @@ class _SignUpPageState extends State<SignUpPage> {
       await prefs.setBool('staySignedIn', true);
 
       // Navigate to home
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacementNamed(context, "/signin");
     }
   }
 
