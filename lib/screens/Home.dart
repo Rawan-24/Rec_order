@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/profile.dart';
 import 'TrackOrderScreen.dart';
+import 'favorites.dart';
+import 'history.dart';
 
 // 👉 TEMP Profile screen (replace later)
 
@@ -244,8 +246,11 @@ class HomeContent extends StatelessWidget {
                   Icons.history,
                   const Color(0xFFEB1B33),
                       () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Reorder clicked")),
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const OrderHistoryPage(),
+                          ),
                     );
                   },
                 ),
@@ -256,8 +261,11 @@ class HomeContent extends StatelessWidget {
                   Icons.favorite_border,
                   const Color(0xFFEB1B33),
                       () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Favorites clicked")),
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const FavoritesPage(),
+                          ),
                     );
                   },
                 ),
