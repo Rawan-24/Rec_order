@@ -1,4 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:grad_project/DatabaseService.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
@@ -274,9 +276,40 @@ class _PaymentScreenState extends State<PaymentScreen> {
           minimumSize: const Size(double.infinity, 60),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
-        onPressed: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen()));
-        },
+onPressed: () async {
+  if (isVoiceConfirmed) {
+    User? user = FirebaseAuth.instance.currentUser;
+
+    if (user != null) {
+      final cart = Provider.of<CartProvider>(context, listen: false);
+
+      try {
+        // 1. Send data to Firestore
+        await DatabaseService().placeOrder(
+          userId: user.uid,
+          items: cart.items,
+          total: cart.total,
+        );
+
+        // 2. SUCCESS! Now clear the local cart
+        cart.clearCart(); 
+
+        // 3. Move to the next screen
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const TrackOrderScreen()));
+        
+      } catch (e) {
+        // Handle database errors (e.g., no internet)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Order failed: $e"), backgroundColor: Colors.red),
+        );
+      }
+    }
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Please confirm your Voice PIN"))
+    );
+  }
+},  
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

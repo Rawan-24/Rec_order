@@ -38,4 +38,10 @@ class CartProvider with ChangeNotifier {
       notifyListeners();
     }
   }
+
+  void clearCart() {
+    _items.clear(); // Empties the list
+    currentRestaurant = ""; // Resets the restaurant lock if you have one
+    notifyListeners(); // Refreshes the UI across the whole app
+  }
 }
