@@ -23,7 +23,29 @@ Future<void> createUserProfile(String uid, String username, String phone) async 
       print("Error creating user: $e");
     }
 }
+Future<void> updateVoiceSettings(String uid, Map<String, dynamic> voiceData) async {
+    try {
+      await _db.collection('users').doc(uid).set({
+        'voiceSettings': voiceData,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      throw Exception("Could not update voice settings: $e");
+    }
+  }
 
+  /// Fetches voice settings for the current user
+  Future<Map<String, dynamic>?> getUserVoiceSettings(String uid) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('users').doc(uid).get();
+      if (doc.exists && doc.data() != null) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        return data['voiceSettings'] as Map<String, dynamic>?;
+      }
+    } catch (e) {
+      print("Error fetching voice settings: $e");
+    }
+    return null;
+  }
 
 
 
@@ -81,18 +103,6 @@ Stream<List<FavoriteModel>> getFavorites(String userId) {
           .toList());
 }
 
-
-Future<void> updateVoiceSettings(String uid, Map<String, dynamic> voiceData) async {
-    try {
-      // Using 'set' with 'merge: true' creates the field if it doesn't exist 
-      // or updates it if it does, without deleting other user data.
-      await _db.collection('users').doc(uid).set({
-        'voiceSettings': voiceData,
-      }, SetOptions(merge: true));
-    } catch (e) {
-      throw Exception("Could not update settings: $e");
-    }
-  }
 
 
 
