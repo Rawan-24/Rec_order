@@ -5,7 +5,6 @@ import 'TrackOrderScreen.dart';
 import 'favorites.dart';
 import 'history.dart';
 
-// 👉 TEMP Profile screen (replace later)
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
