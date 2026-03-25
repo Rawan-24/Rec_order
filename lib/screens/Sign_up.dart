@@ -37,9 +37,9 @@ class _SignUpPageState extends State<SignUpPage> {
   if (uid != null) {
     // 2. Save to Cloud Firestore (The Database)
     await DatabaseService().createUserProfile(
-      uid, 
-      _usernameController.text.trim(), 
-      phone
+      userCredential.user!.uid, 
+  _usernameController.text.trim(), 
+  phone
     );
 
     // 3. Save to Local Prefs

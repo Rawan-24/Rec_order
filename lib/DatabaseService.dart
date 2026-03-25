@@ -22,6 +22,35 @@ Future<void> createUserProfile(String uid, String username, String phone) async 
     } catch (e) {
       print("Error creating user: $e");
     }
+
+}          
+
+
+
+
+
+
+
+
+
+Future<void> updateUserLanguage(String language) async {
+
+
+
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // Use set with merge: true instead of update
+      await _db.collection('users').doc(user.uid).set({
+        'language': language,
+      }, SetOptions(merge: true)); 
+      
+      print("Language updated to $language");
+    }
+  } catch (e) {
+    debugPrint("Error updating language: $e");
+    rethrow;
+  }
 }
 Future<void> updateVoiceSettings(String uid, Map<String, dynamic> voiceData) async {
     try {
@@ -371,20 +400,6 @@ Stream<DocumentSnapshot> getOrderStream(String orderId) {
   return _db.collection('orders').doc(orderId).snapshots();
 }
 
-// Add this inside your DatabaseService class
-Future<void> updateUserLanguage(String language) async {
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      await _db.collection('users').doc(user.uid).update({
-        'language': language,
-      });
-    }
-  } catch (e) {
-    debugPrint("Error updating language: $e");
-    rethrow;
-  }
-}
 
 // Add this to your DatabaseService class
 Stream<DocumentSnapshot> getUserDataStream() {
