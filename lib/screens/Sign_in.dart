@@ -1,8 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+//Done
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -57,10 +58,22 @@ final _formKey = GlobalKey<FormState>();
         phoneNumber: phone,
         verificationCompleted: (PhoneAuthCredential credential) async {
           // Android only: Auto sign-in if it detects the SMS automatically
-          await FirebaseAuth.instance.signInWithCredential(credential);
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool("staySignedIn", staySignedIn);
-          if (mounted) Navigator.pushReplacementNamed(context, '/home');
+          UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+  String uid = userCredential.user!.uid;
+
+  // FETCH DATA FROM DATABASE
+  final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+  
+  final prefs = await SharedPreferences.getInstance();
+  if (userDoc.exists) {
+    // Save their real username from the database to SharedPreferences
+    await prefs.setString('username', userDoc.data()?['username'] ?? "User");
+  }
+  
+  await prefs.setBool("staySignedIn", staySignedIn);
+  if (mounted) Navigator.pushReplacementNamed(context, '/home');
+
+         
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() { isLoading = false; });
@@ -80,7 +93,11 @@ final _formKey = GlobalKey<FormState>();
             Navigator.pushReplacementNamed(
               context, 
               '/verfiy', 
-              arguments: verificationId, // IMPORTANT: Passing ID to next screen
+             arguments: {
+        'verificationId': verificationId,
+        'phone': phone,
+        'isSigningIn': true, // Tell the next screen this is a Sign In, not Sign Up
+      },
             );
           }
         },

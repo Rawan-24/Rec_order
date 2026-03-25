@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:grad_project/screens/CartItem.dart';
+import 'package:grad_project/Models/CartItem.dart';
 
 
 
@@ -37,5 +37,11 @@ class CartProvider with ChangeNotifier {
       _items[index].quantity = newQty;
       notifyListeners();
     }
+  }
+
+  void clearCart() {
+    _items.clear(); // Empties the list
+    currentRestaurant = ""; // Resets the restaurant lock if you have one
+    notifyListeners(); // Refreshes the UI across the whole app
   }
 }

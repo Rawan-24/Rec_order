@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:grad_project/screens/CartItem.dart';
+import 'package:grad_project/Models/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
-import 'package:grad_project/screens/MenuItemModel.dart';
+import 'package:grad_project/Models/MenuItemModel.dart';
 import 'package:grad_project/screens/CartScreen.dart';
 
-
+//Done
 class MenuItem extends StatefulWidget {
 
   final MenuItemModel item;

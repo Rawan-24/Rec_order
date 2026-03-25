@@ -1,10 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/profile.dart';
+
 import 'TrackOrderScreen.dart';
 import 'favorites.dart';
 import 'history.dart';
-
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,10 +18,9 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
 
-  // 👇 Pages for bottom navigation
   final List<Widget> _pages = [
     const HomeContent(),
-    const TrackOrderScreen(),
+    const TrackOrderScreen(orderId: ''),
     const ProfilePage(),
   ];
 
@@ -33,10 +34,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
-
-      // 👇 This switches screens
       body: _pages[_selectedIndex],
-
       bottomNavigationBar: BottomNavigationBar(
         elevation: 10,
         backgroundColor: Colors.white,
@@ -65,18 +63,16 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// 👇 Your original UI moved here
 class HomeContent extends StatelessWidget {
   const HomeContent({super.key});
 
-  // Helper to build the square action cards
   Widget buildQuickAction(
-      BuildContext context,
-      String text,
-      IconData icon,
-      Color iconBgColor,
-      VoidCallback onTap,
-      ) {
+    BuildContext context,
+    String text,
+    IconData icon,
+    Color iconBgColor,
+    VoidCallback onTap,
+  ) {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -130,19 +126,31 @@ class HomeContent extends StatelessWidget {
           children: [
             const SizedBox(height: 40),
 
-            // Header
-            Row(
-              children: const [
-                Text(
-                  "Hello !",
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(width: 8),
-                Text("👋", style: TextStyle(fontSize: 24)),
-              ],
+            // --- DATABASE INTEGRATION: Fetching User Name ---
+            StreamBuilder<DocumentSnapshot>(
+              stream: DatabaseService().getUserDataStream(),
+              builder: (context, snapshot) {
+                String displayName = ""; 
+                
+                if (snapshot.hasData && snapshot.data!.exists) {
+                  Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
+                  displayName = data['name'] ?? "";
+                }
+
+                return Row(
+                  children: [
+                    Text(
+                      displayName.isEmpty ? "Hello !" : "Hello $displayName!",
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text("👋", style: TextStyle(fontSize: 24)),
+                  ],
+                );
+              },
             ),
 
             const SizedBox(height: 8),
@@ -157,7 +165,6 @@ class HomeContent extends StatelessWidget {
 
             const Spacer(flex: 2),
 
-            // Voice section
             Center(
               child: Column(
                 children: [
@@ -169,17 +176,22 @@ class HomeContent extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEB1B33),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.mic,
-                      color: Colors.white,
-                      size: 32,
+                  InkWell(
+                    onTap: () {
+                      // Logic for voice ordering can go here
+                    },
+                    child: Container(
+                      width: 80,
+                      height: 80,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEB1B33),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.mic,
+                        color: Colors.white,
+                        size: 32,
+                      ),
                     ),
                   ),
                 ],
@@ -188,7 +200,6 @@ class HomeContent extends StatelessWidget {
 
             const Spacer(flex: 3),
 
-            // Quick Actions
             const Text(
               "Quick Actions",
               style: TextStyle(
@@ -199,7 +210,6 @@ class HomeContent extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Row 1
             Row(
               children: [
                 buildQuickAction(
@@ -207,12 +217,10 @@ class HomeContent extends StatelessWidget {
                   "Order Food",
                   Icons.restaurant,
                   const Color(0xFFEB1B33),
-                      () {
+                  () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const RestaurantsScreen(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const RestaurantsScreen()),
                     );
                   },
                 ),
@@ -222,12 +230,10 @@ class HomeContent extends StatelessWidget {
                   "Track Order",
                   Icons.inventory_2,
                   const Color(0xFFEB1B33),
-                      () {
+                  () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const TrackOrderScreen(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const TrackOrderScreen(orderId: "")),
                     );
                   },
                 ),
@@ -236,7 +242,6 @@ class HomeContent extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Row 2
             Row(
               children: [
                 buildQuickAction(
@@ -244,12 +249,10 @@ class HomeContent extends StatelessWidget {
                   "Reorder",
                   Icons.history,
                   const Color(0xFFEB1B33),
-                      () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const OrderHistoryPage(),
-                          ),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const OrderHistoryPage()),
                     );
                   },
                 ),
@@ -259,12 +262,10 @@ class HomeContent extends StatelessWidget {
                   "Favorites",
                   Icons.favorite_border,
                   const Color(0xFFEB1B33),
-                      () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const FavoritesPage(),
-                          ),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const FavoritesPage()),
                     );
                   },
                 ),

@@ -192,7 +192,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           Switch(
             value: _settings['all']!,
             onChanged: (val) => setState(() => _settings['all'] = val),
-            activeColor: primaryRed,
+            activeThumbColor: primaryRed,
           ),
         ],
       ),
@@ -236,7 +236,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             onChanged: _settings['all']!
                 ? (val) => setState(() => _settings[key] = val)
                 : null, // Disable individual switches if "All" is off
-            activeColor: primaryRed,
+            activeThumbColor: primaryRed,
           ),
         ),
         if (key != 'delivered' && key != 'discounts' && key != 'driver_ratings' && key != 'email')

@@ -50,7 +50,7 @@ class MyApp extends StatelessWidget {
         '/home': (context) => const HomePage(),
         '/CartScreen': (context) => const CartScreen(),
         '/RestaurantsScreen': (context) => const RestaurantsScreen(),
-        '/TrackOrderScreen': (context) => const TrackOrderScreen(),
+        '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: '',),
         '/PaymentScreen': (context) => PaymentScreen(),
         '/tutorial1': (context) => const VoiceOnboardingScreen(),
         '/verfiy': (context) => const VerificationScreen(),

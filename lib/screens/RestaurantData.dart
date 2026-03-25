@@ -1,5 +1,5 @@
-import 'package:grad_project/screens/Restaurant.dart';
-import 'package:grad_project/screens/MenuItemModel.dart';
+import 'package:grad_project/Models/Restaurant.dart';
+import 'package:grad_project/Models/MenuItemModel.dart';
 
 class RestaurantData {
 

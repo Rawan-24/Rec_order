@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:grad_project/screens/CartItem.dart';
+import 'package:grad_project/Models/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/PaymentScreen.dart';
-
+//Done
 class CartScreen extends StatefulWidget {
   static const String routeName = "CartScreen";
 
