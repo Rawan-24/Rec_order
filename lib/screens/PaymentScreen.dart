@@ -14,9 +14,9 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  // State to track selected payment method
-  String selectedMethod = 'card'; // 'card' or 'cash'
+  String selectedMethod = 'card'; 
   bool isVoiceConfirmed = false;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -36,7 +36,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Voice Command Section
             const Center(
               child: CircleAvatar(
                 radius: 40,
@@ -60,13 +59,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 30),
-            const Text("Select Payment Method",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text("Select Payment Method", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 15),
-
-            // Payment Options
             _buildPaymentOption(
               id: 'card',
               title: "Credit / Debit Card",
@@ -80,10 +75,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               subtitle: "Pay when you receive",
               icon: Icons.money,
             ),
-
             const SizedBox(height: 30),
-
-            // Conditional Card Details Section
             if (selectedMethod == 'card') ...[
               const Text("Card Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
@@ -101,12 +93,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
               const SizedBox(height: 10),
               _buildVoicePinButton(),
             ],
-
             const SizedBox(height: 20),
             _buildSecurePaymentNote(),
             const SizedBox(height: 20),
             _buildOrderSummary(),
-            const SizedBox(height: 100), // Padding for bottom button
+            const SizedBox(height: 100),
           ],
         ),
       ),
@@ -165,27 +156,21 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Widget _buildVoicePinButton() {
-    // Define colors based on state
     final Color backgroundColor = isVoiceConfirmed ? const Color(0xFFEB1B33) : Colors.white;
     final Color contentColor = isVoiceConfirmed ? Colors.white : Colors.black87;
     final Color subTextColor = isVoiceConfirmed ? Colors.white70 : Colors.grey;
 
     return Material(
       color: backgroundColor,
-      elevation: isVoiceConfirmed ? 0 : 2, // Slight shadow when white
+      elevation: isVoiceConfirmed ? 0 : 2,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
-        onTap: () {
-          setState(() {
-            isVoiceConfirmed = !isVoiceConfirmed; // Toggles the state for demo purposes
-          });
-        },
+        onTap: () => setState(() => isVoiceConfirmed = !isVoiceConfirmed),
         borderRadius: BorderRadius.circular(20),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            // Optional: Add a light border when white to match your "not selected" image
             border: isVoiceConfirmed ? null : Border.all(color: Colors.black12),
           ),
           child: Row(
@@ -196,37 +181,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      "Voice PIN Confirmation",
-                      style: TextStyle(
-                        color: contentColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                    Text(
-                      "Speak your 4-digit PIN",
-                      style: TextStyle(
-                        color: subTextColor,
-                        fontSize: 13,
-                      ),
-                    ),
+                    Text("Voice PIN Confirmation", style: TextStyle(color: contentColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                    Text("Speak your 4-digit PIN", style: TextStyle(color: subTextColor, fontSize: 13)),
                   ],
                 ),
               ),
-              // Only show the checkmark if confirmed
-              if (isVoiceConfirmed)
-                const Icon(
-                  Icons.check_circle_outline,
-                  color: Colors.white,
-                  size: 26,
-                ),
+              if (isVoiceConfirmed) const Icon(Icons.check_circle_outline, color: Colors.white, size: 26),
             ],
           ),
         ),
       ),
     );
   }
+
   Widget _buildSecurePaymentNote() {
     return Container(
       padding: const EdgeInsets.all(15),
@@ -243,8 +210,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Widget _buildOrderSummary() {
-    final cart = Provider.of<CartProvider>(context); // Sync money
-
+    final cart = Provider.of<CartProvider>(context);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
@@ -276,51 +242,36 @@ class _PaymentScreenState extends State<PaymentScreen> {
           minimumSize: const Size(double.infinity, 60),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
-onPressed: () async {
-  if (isVoiceConfirmed || selectedMethod == 'cash') { // Allow cash without PIN if preferred
-    User? user = FirebaseAuth.instance.currentUser;
+        onPressed: () async {
+          if (selectedMethod == 'cash' || isVoiceConfirmed) {
+            User? user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              try {
+                // Show loading indicator
+                showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator()));
 
-    if (user != null) {
-      final cart = Provider.of<CartProvider>(context, listen: false);
+                String orderId = await DatabaseService().placeOrder(
+                  userId: user.uid,
+                  items: cart.items,
+                  total: cart.total,
+                  paymentMethod: selectedMethod, restaurantName: '', restaurantImage: '',
+            
+                );
 
-      try {
-       String orderId= await DatabaseService().placeOrder(
-          userId: user.uid,
-          items: cart.items,
-          total: cart.total,
-          paymentMethod: selectedMethod,
-           restaurantName: '', 
-           restaurantImage: '', // ADD THIS LINE
-        );
-
-        cart.clearCart(); 
-        Navigator.push(context, MaterialPageRoute(builder: (context) =>  TrackOrderScreen(orderId: orderId)));
-        
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Order failed: $e"), backgroundColor: Colors.red),
-        );
-      }
-    }
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Please confirm your Voice PIN for card payment"))
-    );
-  }
-},   
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.lock, color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Text(
-                "Confirm & Pay \$${cart.total.toStringAsFixed(2)}",
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)
-            ),
-          ],
-        ),
+                cart.clearCart();
+                Navigator.pop(context); // Remove loading
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
+              } catch (e) {
+                Navigator.pop(context); // Remove loading
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+              }
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please confirm your Voice PIN first")));
+          }
+        },
+        child: Text("Confirm & Pay \$${cart.total.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
       ),
     );
   }
 }
-

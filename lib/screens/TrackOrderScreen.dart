@@ -1,10 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
- //Done
 
 class TrackOrderScreen extends StatefulWidget {
-  final String orderId; 
+  final String orderId;
   const TrackOrderScreen({super.key, required this.orderId});
 
   @override
@@ -40,10 +39,13 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
           }
 
           var orderData = snapshot.data!.data() as Map<String, dynamic>;
+          
+          // Data mapping from Firestore
           String status = orderData['status'] ?? "Pending";
-          double total = (orderData['totalPrice'] as num).toDouble();
-          String orderNumber = orderData['orderNumber'] ?? "N/A";
+          double total = (orderData['totalPrice'] as num?)?.toDouble() ?? 0.0;
+          String orderNumber = orderData['orderNumber'] ?? widget.orderId.substring(0, 5);
           List items = orderData['items'] ?? [];
+          String restaurant = orderData['restaurantName'] ?? "RecOrder Partner";
 
           return SingleChildScrollView(
             child: Column(
@@ -69,7 +71,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                               title: "Order Confirmed",
                               subtitle: "Restaurant is preparing",
                               icon: Icons.check,
-                              isCompleted: true,
+                              isCompleted: true, // Confirmed is always true if order exists
                               showLine: true,
                             ),
                             _buildStatusStep(
@@ -110,7 +112,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                             const Text("Order Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 15),
                             _buildDetailRow("Order ID", "#$orderNumber"),
-                            _buildDetailRow("Restaurant", orderData['restaurantName'] ?? "RecOrder Partner"),
+                            _buildDetailRow("Restaurant", restaurant),
                             _buildDetailRow("Items", "${items.length} items"),
                             const Divider(height: 30),
                             _buildDetailRow("Total", "\$${total.toStringAsFixed(2)}", isTotal: true),
@@ -179,7 +181,8 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
           const SizedBox(height: 5),
           Text(status == "Delivered" ? "Arrived" : "12 min", 
                style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
-          const Text("Your food is almost there!", style: TextStyle(color: Colors.white, fontSize: 16)),
+          Text(status == "Delivered" ? "Order completed" : "Your food is almost there!", 
+               style: const TextStyle(color: Colors.white, fontSize: 16)),
         ],
       ),
     );
@@ -189,7 +192,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(25),
       child: Image.network(
-        'https://images.unsplash.com/photo-1600891964599-f61ba0e24092?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1526628953301-3e589a6a8b74?q=80&w=2006&auto=format&fit=crop',
         height: 200, width: double.infinity, fit: BoxFit.cover,
       ),
     );
@@ -276,7 +279,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
 // --- Animation Helper ---
 
 class AnimatedDots extends StatefulWidget {
-    const AnimatedDots({super.key});
+  const AnimatedDots({super.key});
 
   @override
   State<AnimatedDots> createState() => _AnimatedDotsState();
@@ -285,16 +288,18 @@ class AnimatedDots extends StatefulWidget {
 class _AnimatedDotsState extends State<AnimatedDots> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   
-  
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat();
   }
 
-
   @override
-  Future<void> dispose() async { _controller.dispose(); super.dispose(); }
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(

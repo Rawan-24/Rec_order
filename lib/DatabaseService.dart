@@ -270,54 +270,63 @@ Future<void> savePaymentMethod(String userId, Map<String, dynamic> methodData) a
     });
   }
 
-  // --- PART B: THE ORDER TRANSACTION ---
+ /// Places a new order, links it to the user, and returns the Order ID
+  Future<String> placeOrder({
+    required String userId,
+    required List<CartItem> items, // Using your specific model
+    required double total,
+    required String restaurantName,
+    required String restaurantImage,
+    String paymentMethod = 'card',
+  }) async {
+    try {
+      // 1. Create a reference to a new document to get the ID first
+      DocumentReference orderRef = _db.collection('orders').doc();
 
-  /// Place the actual order into the orders collection
-Future<String> placeOrder({ // Change void to String
-  required String userId,
-  required List<CartItem> items,
-  required double total,
-  required String restaurantName,  // 👈 Add this
-  required String restaurantImage, // 👈 Add this
-  String paymentMethod = 'card',
-}) async {
-  try {
-    List<Map<String, dynamic>> itemsList = items.map((item) => {
-      'name': item.name,
-      'quantity': item.quantity,
-      'price': item.price,
-      'details': item.details,
-     
-    }).toList();
+      // 2. Prepare the data
+      Map<String, dynamic> orderData = {
+        'orderId': orderRef.id,
+        'userId': userId,
+        'items': items.map((item) => {
+          'name': item.name,
+          'price': item.price,
+          'quantity': item.quantity,
+         
+          'details': item.details ?? '', // Handle extra info if available
+        }).toList(),
+        'totalPrice': total,
+        'paymentMethod': paymentMethod,
+        'status': "Pending",
+        'restaurantName': restaurantName.isEmpty ? "RecOrder Partner" : restaurantName,
+        'restaurantImage': restaurantImage,
+        'orderNumber': 'ORD${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+        'timestamp': FieldValue.serverTimestamp(),
+      };
 
-    // Use .add() but store the reference
-// Update inside your placeOrder function in DatabaseService.dart
-DocumentReference docRef = await _db.collection('orders').add({
-  'userId': userId,
-  'items': itemsList,
-  'totalPrice': total,
-   'restaurantName': restaurantName,
-  'restaurantImage': restaurantImage,
-  'paymentMethod': paymentMethod,
-  'status': 'Pending',
-  'createdAt': FieldValue.serverTimestamp(),
-  'orderNumber': 'ORD${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-});
+      // 3. Save the order to the 'orders' collection
+      await orderRef.set(orderData);
 
-// 👉 ADD THIS: Link the order to the user document
-await _db.collection('users').doc(userId).update({
-  'activeOrderId': docRef.id,
-});
+      // 4. Update the User's document to link this as the "Active" order
+      // This is crucial for your Track Order screen logic!
+      await _db.collection('users').doc(userId).set({
+        'activeOrderId': orderRef.id,
+      }, SetOptions(merge: true)); // Use merge: true so we don't overwrite user profile data
 
-return docRef.id; // Return the new ID so the UI can navigate to the right track screen
-  } catch (e) {
-    throw Exception("Failed to place order: $e");
- 
- 
+      return orderRef.id;
+    } catch (e) {
+      print("Database Error: $e");
+      throw Exception("Failed to place order: $e");
+    }
   }
-  // Link the new order to the user document as their "current" order
 
-}
+
+
+
+
+
+
+
+
 Stream<List<Map<String, dynamic>>> getUserOrders(String userId) {
   return _db
       .collection('orders')
@@ -410,8 +419,31 @@ Stream<DocumentSnapshot> getOrderById(String orderId) {
 
 
 
+  // 2. Fetch order history for a specific user (Used in OrderHistoryPage)
+  Stream<QuerySnapshot> getOrdersByUser(String userId) {
+    return _db
+        .collection('orders')
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
 
 
+// 1. Get real-time stream of the user's data (including cards)
+  Stream<DocumentSnapshot> getUserStream(String userId) {
+    return _db.collection('users').doc(userId).snapshots();
+  }
+
+  // 2. Add a new payment method to the array
+  Future<void> addPaymentMethod(String userId, Map<String, dynamic> cardData) async {
+    try {
+      await _db.collection('users').doc(userId).update({
+        'payment_methods': FieldValue.arrayUnion([cardData])
+      });
+    } catch (e) {
+      print("Error adding payment method: $e");
+    }
+  }
 
 
 
