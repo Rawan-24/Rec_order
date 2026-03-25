@@ -1,6 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:grad_project/DatabaseService.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+//Done
 ///  test number      +1 223-334-4455
 /// test code            123456
 class VerificationScreen extends StatefulWidget {
@@ -11,10 +15,22 @@ class VerificationScreen extends StatefulWidget {
 }
 
 class _VerificationScreenState extends State<VerificationScreen> {
+  final FlutterTts tts = FlutterTts(); 
+
+
   // Create 6 controllers and 6 focus nodes for the 6 digits
   final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
 
+
+  // Add this to make sure the volume/language is set
+  @override
+  void initState() {
+    super.initState();
+    tts.setLanguage("en-US");
+    tts.setPitch(1.0);
+  }
+  
   @override
   void dispose() {
     for (var controller in _controllers) {
@@ -27,53 +43,73 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
     bool isLoading = false;
-
-  void _verifyAndNavigate() async {
-    String otp = _controllers.map((e) => e.text).join();
-    
-    if (otp.length == 6) {
-      setState(() { isLoading = true; });
-
-      // GET THE VERIFICATION ID PASSED FROM THE PREVIOUS SCREEN
-      final verificationId = ModalRoute.of(context)!.settings.arguments as String?;
-
-      if (verificationId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error: Verification ID missing. Please try signing in again."))
-        );
-        setState(() { isLoading = false; });
-        return;
-      }
-
-      try {
-        // Create a PhoneAuthCredential with the code
-        PhoneAuthCredential credential = PhoneAuthProvider.credential(
-          verificationId: verificationId, 
-          smsCode: otp
-        );
-
-        // Sign the user in
-        await FirebaseAuth.instance.signInWithCredential(credential);
-        
-        if (mounted) Navigator.pushReplacementNamed(context, '/home');
-      } on FirebaseAuthException catch (e) {
-        setState(() { isLoading = false; });
-        String errorMsg = e.code == 'invalid-verification-code'
-            ? 'The code you entered is incorrect.'
-            : e.message ?? 'Verification failed';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
-      } catch (e) {
-        setState(() { isLoading = false; });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("An error occurred. Please try again.")));
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter all 6 digits."))
-      );
-    }
+void _verifyAndNavigate() async {
+  String otp = _controllers.map((e) => e.text).join();
   
-  }
+  if (otp.length == 6) {
+    setState(() { isLoading = true; });
 
+    // 1. GET THE DATA MAP
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
+
+    if (args == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Session expired.")));
+      setState(() { isLoading = false; });
+      return;
+    }
+
+    // Extracting all items from the "suitcase" (the args map)
+    final String verificationId = args['verificationId'] ?? '';
+    final String? username = args['username']; 
+    final String phone = args['phone'] ?? '';
+    final bool isSigningIn = args['isSigningIn'] ?? false; // IMPORTANT: Define this here!
+
+    try {
+      // 2. Create the Credential and Sign In
+      PhoneAuthCredential credential = PhoneAuthProvider.credential(
+        verificationId: verificationId, 
+        smsCode: otp
+      );
+
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      String uid = userCredential.user!.uid;
+
+      // 3. DATABASE CHECK
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+
+      if (!userDoc.exists) {
+        if (isSigningIn) {
+          // Case A: They clicked "Sign In" but they don't have an account in Firestore
+          tts.speak("Account not found. Please create an account first.");
+          if (mounted) Navigator.pushReplacementNamed(context, '/SignUp');
+          return; // Stop here
+        } else if (username != null) {
+          // Case B: They are on the "Sign Up" path and brand new
+          await DatabaseService().createUserProfile(uid, username, phone);
+        }
+      } else {
+        // Case C: User exists! Let's save their name locally so the Home screen can use it
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('username', userDoc.data()?['username'] ?? "User");
+        print("User already exists, profile loaded.");
+      }
+
+      // 4. Success! Go Home
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
+
+    } on FirebaseAuthException catch (e) {
+      setState(() { isLoading = false; });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.code == 'invalid-verification-code' ? 'Incorrect code' : e.message ?? 'Error'))
+      );
+    } catch (e) {
+      setState(() { isLoading = false; });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("An error occurred.")));
+    }
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter all 6 digits.")));
+  }
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -104,7 +140,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 ),
                 child: const Icon(
                   Icons.mic,
-                  color: const Color(0xFFEB1B33),
+                  color: Color(0xFFEB1B33),
                   size: 50,
                 ),
               ),
@@ -150,7 +186,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 child: const Text(
                   "Resend Code",
                   style: TextStyle(
-                    color: const Color(0xFFEB1B33),
+                    color: Color(0xFFEB1B33),
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
@@ -173,7 +209,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text(
                         "Verify",
-                        style: TextStyle(color: const Color(0xFFF4EDE4), fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: Color(0xFFF4EDE4), fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                 ),
               ),

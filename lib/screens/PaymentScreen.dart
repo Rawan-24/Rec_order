@@ -277,28 +277,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
 onPressed: () async {
-  if (isVoiceConfirmed) {
+  if (isVoiceConfirmed || selectedMethod == 'cash') { // Allow cash without PIN if preferred
     User? user = FirebaseAuth.instance.currentUser;
 
     if (user != null) {
       final cart = Provider.of<CartProvider>(context, listen: false);
 
       try {
-        // 1. Send data to Firestore
-        await DatabaseService().placeOrder(
+       String orderId= await DatabaseService().placeOrder(
           userId: user.uid,
           items: cart.items,
           total: cart.total,
+          paymentMethod: selectedMethod,
+           restaurantName: '', 
+           restaurantImage: '', // ADD THIS LINE
         );
 
-        // 2. SUCCESS! Now clear the local cart
         cart.clearCart(); 
-
-        // 3. Move to the next screen
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const TrackOrderScreen()));
+        Navigator.push(context, MaterialPageRoute(builder: (context) =>  TrackOrderScreen(orderId: orderId)));
         
       } catch (e) {
-        // Handle database errors (e.g., no internet)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Order failed: $e"), backgroundColor: Colors.red),
         );
@@ -306,10 +304,10 @@ onPressed: () async {
     }
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Please confirm your Voice PIN"))
+      const SnackBar(content: Text("Please confirm your Voice PIN for card payment"))
     );
   }
-},  
+},   
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -325,3 +323,4 @@ onPressed: () async {
     );
   }
 }
+

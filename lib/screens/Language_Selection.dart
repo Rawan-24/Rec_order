@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:grad_project/DatabaseService.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+
 
 class LanguageSelectionScreen extends StatefulWidget {
   const LanguageSelectionScreen({super.key});
 
   @override
-  State<LanguageSelectionScreen> createState() =>
-      _LanguageSelectionScreenState();
+  State<LanguageSelectionScreen> createState() => _LanguageSelectionScreenState();
 }
 
 class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
-
   final FlutterTts tts = FlutterTts();
   final stt.SpeechToText speech = stt.SpeechToText();
 
   bool isListening = false;
+  bool isSaving = false; // New state for database updates
 
   @override
   void initState() {
@@ -33,84 +34,81 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
   }
 
   void startListening() async {
-
     bool available = await speech.initialize();
-
     if (available) {
-
       setState(() => isListening = true);
-
       speech.listen(onResult: (result) {
-
         String words = result.recognizedWords.toLowerCase();
-
         if (words.contains("english")) {
           selectLanguage("English");
-        }
-
-        if (words.contains("arabic")) {
+        } else if (words.contains("arabic") || words.contains("العربية")) {
           selectLanguage("Arabic");
         }
-
       });
     }
   }
 
+  // UPDATED: Now saves to database
   void selectLanguage(String language) async {
+    if (isSaving) return; // Prevent double taps
 
-    await confirmLanguage(language);
+    setState(() => isSaving = true);
+    speech.stop();
 
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      // 1. Save to Firestore
+      await DatabaseService().updateUserLanguage(language);
+      
+      // 2. Audio Confirmation
+      await confirmLanguage(language);
 
-    Navigator.pushReplacementNamed(context, '/tutorial1');
+      // 3. Small delay for better UX
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (mounted) {
+        // 4. Navigate to Tutorial
+        Navigator.pushReplacementNamed(context, '/tutorial1');
+      }
+    } catch (e) {
+      setState(() => isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error saving language preference: $e")),
+      );
+    }
   }
 
   Widget languageButton(String code, String text) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 25, vertical: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      height: 75,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.red.withOpacity(0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-
-          Text(
-            code,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey,
+    return InkWell(
+      onTap: isSaving ? null : () => selectLanguage(text),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 25, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        height: 75,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              code,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-          ),
-
-          TextButton(
-            onPressed: () => selectLanguage(text),
-            child: Text(
+            Text(
               text,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
             ),
-          ),
-
-          const Icon(
-            Icons.mic,
-            color: Colors.red,
-          )
-        ],
+            const Icon(Icons.mic, color: Colors.red),
+          ],
+        ),
       ),
     );
   }
@@ -119,14 +117,12 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xffF8F8F8),
-
       body: SafeArea(
-        child: Column(
+        child: isSaving 
+          ? const Center(child: CircularProgressIndicator(color: Colors.red)) 
+          : Column(
           children: [
-
             const SizedBox(height: 40),
-
-            /// globe icon
             Container(
               height: 100,
               width: 100,
@@ -134,76 +130,45 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
                 color: Colors.red.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                Icons.language,
-                size: 45,
-                color: Colors.red,
-              ),
+              child: const Icon(Icons.language, size: 45, color: Colors.red),
             ),
-
             const SizedBox(height: 30),
-
             const Text(
               "Choose Your Language",
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 10),
-
             const Text(
               "Select your preferred language",
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
-
             const SizedBox(height: 40),
-
             languageButton("GB", "English"),
-
-            languageButton("SA", "العربية"),
-
+            languageButton("SA", "Arabic"),
             const SizedBox(height: 40),
-
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-
-                Icon(
-                  Icons.mic,
-                  color: Colors.red,
-                ),
-
-                SizedBox(width: 10),
-
+              children: [
+                Icon(Icons.mic, color: isListening ? Colors.green : Colors.red),
+                const SizedBox(width: 10),
                 Text(
-                  'Say "English" or "Arabic"',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
+                  isListening ? 'Listening...' : 'Say "English" or "Arabic"',
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
               ],
             ),
-
             const Spacer(),
-
             Padding(
               padding: const EdgeInsets.only(bottom: 30),
               child: FloatingActionButton(
-                backgroundColor: Colors.red,
+                backgroundColor: isListening ? Colors.green : Colors.red,
                 onPressed: startListening,
-                child: const Icon(Icons.mic,
-                color: Colors.white,
-                ),
+                child: const Icon(Icons.mic, color: Colors.white),
               ),
             )
           ],
         ),
       ),
     );
-  } }
+  }
+}

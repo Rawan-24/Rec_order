@@ -1,4 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/Models/FavoriteModel.dart';
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({super.key});
@@ -8,56 +11,54 @@ class FavoritesPage extends StatefulWidget {
 }
 
 class _FavoritesPageState extends State<FavoritesPage> {
-  // Mock data for favorites
-  final List<Map<String, dynamic>> _favorites = [
-    {
-      "name": "Pizza Paradise",
-      "cuisine": "Italian • Pizza",
-      "rating": "4.8",
-      "time": "20-30 min",
-      "image": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400",
-    },
-    {
-      "name": "Burger Bros",
-      "cuisine": "American • Burgers",
-      "rating": "4.5",
-      "time": "15-25 min",
-      "image": "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=400",
-    },
-    {
-      "name": "Sushi Station",
-      "cuisine": "Japanese • Sushi",
-      "rating": "4.9",
-      "time": "30-40 min",
-      "image": "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=400",
-    },
-  ];
-
   @override
   Widget build(BuildContext context) {
+    // Get current user safely
+    final User? user = FirebaseAuth.instance.currentUser;
+    final String userId = user?.uid ?? "";
     const primaryRed = Color(0xFFD32F2F);
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Favorite Restaurants", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text("Favorite Restaurants", 
+          style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: primaryRed,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: _favorites.isEmpty
-          ? _buildEmptyState(primaryRed)
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _favorites.length,
-        itemBuilder: (context, index) {
-          return _buildFavoriteCard(_favorites[index], primaryRed);
-        },
-      ),
+      body: userId.isEmpty 
+        ? const Center(child: Text("Please log in to see favorites"))
+        : StreamBuilder<List<FavoriteModel>>(
+            stream: DatabaseService().getFavorites(userId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              }
+
+              final favorites = snapshot.data ?? [];
+
+              if (favorites.isEmpty) {
+                return _buildEmptyState(primaryRed);
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: favorites.length,
+                itemBuilder: (context, index) {
+                  return _buildFavoriteCard(favorites[index], primaryRed, userId);
+                },
+              );
+            },
+          ),
     );
   }
 
-  Widget _buildFavoriteCard(Map<String, dynamic> item, Color accent) {
+  Widget _buildFavoriteCard(FavoriteModel item, Color accent, String userId) {
     return Card(
       clipBehavior: Clip.antiAlias,
       elevation: 0,
@@ -68,18 +69,23 @@ class _FavoritesPageState extends State<FavoritesPage> {
       ),
       child: InkWell(
         onTap: () {
-          // Navigate to Restaurant Detail
+          // Navigate to Restaurant Detail (Pass the item.id)
         },
         child: Column(
           children: [
-            // Restaurant Image
             Stack(
               children: [
+                // Error handling added for images
                 Image.network(
-                  item['image'],
+                  item.image,
                   height: 160,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 160,
+                    color: Colors.grey[200],
+                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                  ),
                 ),
                 Positioned(
                   top: 12,
@@ -89,7 +95,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     child: IconButton(
                       icon: const Icon(Icons.favorite, color: Colors.red),
                       onPressed: () {
-                        // Logic to remove from favorites
+                        // In this screen, we are always removing because they are already favorites
+                        DatabaseService().toggleFavorite(userId, item, true);
                       },
                     ),
                   ),
@@ -107,14 +114,14 @@ class _FavoritesPageState extends State<FavoritesPage> {
                       children: [
                         const Icon(Icons.star, color: Colors.amber, size: 16),
                         const SizedBox(width: 4),
-                        Text(item['rating'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text(item.rating, 
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
                 ),
               ],
             ),
-            // Restaurant Details
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Row(
@@ -123,16 +130,19 @@ class _FavoritesPageState extends State<FavoritesPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text(item.name, 
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text(item['cuisine'], style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+                      Text(item.cuisine, 
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14)),
                     ],
                   ),
                   Row(
                     children: [
                       Icon(Icons.access_time, size: 16, color: Colors.grey[400]),
                       const SizedBox(width: 4),
-                      Text(item['time'], style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                      Text(item.time, 
+                        style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                     ],
                   ),
                 ],
@@ -151,13 +161,18 @@ class _FavoritesPageState extends State<FavoritesPage> {
         children: [
           Icon(Icons.favorite_border, size: 80, color: Colors.grey[300]),
           const SizedBox(height: 20),
-          const Text("No favorites yet", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const Text("No favorites yet", 
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
           const SizedBox(height: 10),
-          const Text("Start hearting restaurants to see them here!", style: TextStyle(color: Colors.grey)),
+          const Text("Start hearting restaurants to see them here!", 
+            style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(backgroundColor: accent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accent,
+              foregroundColor: Colors.white,
+            ),
             child: const Text("Explore Restaurants"),
           ),
         ],

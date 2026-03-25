@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:grad_project/screens/Restaurant.dart';
+import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/Models/Restaurant.dart';
 import 'package:grad_project/screens/RestaurantData.dart';
 import 'package:grad_project/screens/Menu.dart';
 import 'package:grad_project/screens/RestaurantCard.dart';
-
+//Done
 class RestaurantsScreen extends StatefulWidget {
   static const String routeName = "RestaurantsScreen";
 
@@ -14,43 +15,42 @@ class RestaurantsScreen extends StatefulWidget {
 }
 
 class _RestaurantsScreenState extends State<RestaurantsScreen> {
-  final List<Restaurant> allRestaurants = RestaurantData.restaurants;
-
-  List<Restaurant> displayedRestaurants = [];
+ 
+  final DatabaseService _dbService = DatabaseService();
+  String _currentFilter = 'reset';
 
   @override
   void initState() {
     super.initState();
-    displayedRestaurants = List.from(allRestaurants);
+    // Trigger the upload logic automatically when the screen loads
+    _checkAndSeedData();
   }
+  
 
-  void _applyFilter(String criteria) {
-    setState(() {
-      if (criteria == 'rating') {
-        // Sort by rating (Highest to Lowest)
-        displayedRestaurants.sort((a, b) =>
-            double.parse(b.rating).compareTo(double.parse(a.rating))
-        );
-      } else if (criteria == 'distance') {
-        // Sort by distance (Nearest to Farthest)
-        displayedRestaurants.sort((a, b) {
-          // This removes " km" and any other text so we can parse just the number
-          double distA = double.parse(a.distance.replaceAll(RegExp(r'[^0-9.]'), ''));
-          double distB = double.parse(b.distance.replaceAll(RegExp(r'[^0-9.]'), ''));
-          return distA.compareTo(distB);
-        });
-      } else {
-        // Reset to original list order
-        displayedRestaurants = List.from(allRestaurants);
-      }
-    });
+
+  Future<void> _checkAndSeedData() async {
+    // Optional: You could check if the database is empty first
+    // to avoid duplicating data every time the app opens.
+    
+    try {
+      // This calls the method you added to your DatabaseService
+      await _dbService.uploadMockData(RestaurantData.restaurants);
+      print("Database seeded successfully from initState");
+    } catch (e) {
+      print("Error seeding data: $e");
+    }
   }
-
+void _applyFilter(String criteria) {
+  setState(() {
+    _currentFilter = criteria;
+  });
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
       appBar: AppBar(
+
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
@@ -69,7 +69,9 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
               const PopupMenuItem(value: 'reset', child: Text("Reset Filters")),
             ],
           ),
+    
         ],
+        
       ),
 
       // Floating Mic Button
@@ -114,31 +116,67 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
 
           const SizedBox(height: 10),
 
-          // THE DYNAMIC LIST
-          Expanded(
-              child:ListView.builder(
-                itemCount: displayedRestaurants.length,
-                itemBuilder: (context, index) {
+    // --- THE DYNAMIC LIST ---
+Expanded(
+  child: StreamBuilder<List<Restaurant>>(
+    stream: _dbService.getRestaurantsStream(), // Connection to Firebase
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return Center(child: Text("Error: ${snapshot.error}"));
+      }
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33)));
+      }
 
-                  var restaurant = displayedRestaurants[index];
+      // 1. Get the data from Firebase
+      List<Restaurant> restaurants = snapshot.data ?? [];
 
-                  return RestaurantCard(
-                    name: restaurant.name,
-                    rating: restaurant.rating,
-                    distance: restaurant.distance,
-                    image: restaurant.image,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => Menu(restaurant: restaurant),
-                        ),
-                      );
-                    },
-                  );
-                },
-              )
-          ),
+      // 2. Apply Sorting (Rating or Distance)
+      // Inside StreamBuilder sorting logic
+if (_currentFilter == 'rating') {
+  restaurants.sort((a, b) {
+    double ratingA = double.tryParse(a.rating) ?? 0.0; // Use tryParse to avoid crashes
+    double ratingB = double.tryParse(b.rating) ?? 0.0;
+    return ratingB.compareTo(ratingA);
+  });
+}
+else if (_currentFilter == 'distance') {
+  restaurants.sort((a, b) {
+    // tryParse is safer to prevent crashes on bad data
+    double distA = double.tryParse(a.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+    double distB = double.tryParse(b.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+    return distA.compareTo(distB);
+  });
+}
+
+      if (restaurants.isEmpty) {
+        return const Center(child: Text("No restaurants found."));
+      }
+
+      return ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: restaurants.length,
+        itemBuilder: (context, index) {
+          var restaurant = restaurants[index];
+          return RestaurantCard(
+            name: restaurant.name,
+            rating: restaurant.rating,
+            distance: restaurant.distance,
+            image: restaurant.image,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => Menu(restaurant: restaurant),
+                ),
+              );
+            },
+          );
+        },
+      );
+    },
+  ),
+),
         ],
       ),
     );

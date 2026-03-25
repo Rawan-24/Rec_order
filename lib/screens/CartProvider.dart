@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:grad_project/screens/CartItem.dart';
+import 'package:grad_project/Models/CartItem.dart';
 
 
 

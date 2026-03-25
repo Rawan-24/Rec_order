@@ -1,4 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:grad_project/DatabaseService.dart';
+import 'package:intl/intl.dart'; // For date formatting
+
+import 'TrackOrderScreen.dart';
 
 class OrderHistoryPage extends StatelessWidget {
   const OrderHistoryPage({super.key});
@@ -27,77 +32,80 @@ class OrderHistoryPage extends StatelessWidget {
         ),
         body: TabBarView(
           children: [
-            _buildActiveOrders(primaryRed),
-            _buildPastOrders(primaryRed),
+            _buildOrderList(DatabaseService().getActiveOrders(), primaryRed, true),
+            _buildOrderList(DatabaseService().getPastOrders(), primaryRed, false),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildActiveOrders(Color accent) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildOrderCard(
-          restaurant: "Pizza Paradise",
-          date: "Just now",
-          status: "Preparing",
-          statusColor: Colors.orange,
-          items: "2 items",
-          price: "\$55.80",
-          showTrackButton: true,
-          accent: accent,
-        ),
-      ],
-    );
-  }
+  Widget _buildOrderList(Stream<QuerySnapshot> stream, Color accent, bool isActive) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return const Center(child: Text("Something went wrong"));
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-  Widget _buildPastOrders(Color accent) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildOrderCard(
-          restaurant: "Burger Bros",
-          date: "Feb 25, 2026",
-          status: "Delivered",
-          statusColor: Colors.green,
-          items: "3 items",
-          price: "\$42.50",
-          accent: accent,
-        ),
-        _buildOrderCard(
-          restaurant: "Sushi Station",
-          date: "Feb 23, 2026",
-          status: "Delivered",
-          statusColor: Colors.green,
-          items: "4 items",
-          price: "\$68.20",
-          accent: accent,
-        ),
-        _buildOrderCard(
-          restaurant: "Taco Town",
-          date: "Feb 18, 2026",
-          status: "Cancelled",
-          statusColor: Colors.red,
-          items: "1 item",
-          price: "\$15.00",
-          accent: accent,
-        ),
-      ],
+        if (snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey[300]),
+                const SizedBox(height: 16),
+                Text("No orders found", style: TextStyle(color: Colors.grey[600])),
+              ],
+            ),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: snapshot.data!.docs.map((doc) {
+            Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+            return _buildOrderCard(
+              context: context,
+              orderId: doc.id,
+              restaurant: data['restaurantName'] ?? "Unknown Restaurant",
+              date: data['timestamp'] != null 
+                  ? DateFormat('MMM d, yyyy').format((data['timestamp'] as Timestamp).toDate())
+                  : "Recently",
+              status: data['status'] ?? "Pending",
+              items: "${data['itemCount'] ?? 0} items",
+              price: "\$${data['totalPrice']?.toStringAsFixed(2) ?? '0.00'}",
+              accent: accent,
+              showTrackButton: isActive,
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
   Widget _buildOrderCard({
+    required BuildContext context,
+    required String orderId,
     required String restaurant,
     required String date,
     required String status,
-    required Color statusColor,
     required String items,
     required String price,
     required Color accent,
     bool showTrackButton = false,
   }) {
+    // Map status string to a specific color
+    Color statusColor;
+    switch (status.toLowerCase()) {
+      case 'preparing': statusColor = Colors.orange; break;
+      case 'delivered': statusColor = Colors.green; break;
+      case 'cancelled': statusColor = Colors.red; break;
+      case 'on the way': statusColor = Colors.blue; break;
+      default: statusColor = Colors.grey;
+    }
+
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 16),
@@ -143,7 +151,12 @@ class OrderHistoryPage extends StatelessWidget {
                 ),
                 if (showTrackButton)
                   ElevatedButton(
-                    onPressed: () {},
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)),
+                      );
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: accent,
                       foregroundColor: Colors.white,
@@ -154,7 +167,9 @@ class OrderHistoryPage extends StatelessWidget {
                   )
                 else
                   OutlinedButton(
-                    onPressed: () {},
+                    onPressed: () {
+                      // Logic to add items back to cart would go here
+                    },
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: accent),
                       foregroundColor: accent,

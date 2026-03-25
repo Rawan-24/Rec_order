@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:grad_project/DatabaseService.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+//Done
 // password field deleted and sign up page navigate to the login
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -29,12 +31,30 @@ class _SignUpPageState extends State<SignUpPage> {
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         verificationCompleted: (PhoneAuthCredential credential) async {
-          await FirebaseAuth.instance.signInWithCredential(credential);
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('username', _usernameController.text);
-          await prefs.setString('phone', phone);
-          await prefs.setBool('staySignedIn', true);
-          if (mounted) Navigator.pushReplacementNamed(context, '/home');
+          // 1. Sign in the user
+  UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+  String? uid = userCredential.user?.uid;
+  if (uid != null) {
+    // 2. Save to Cloud Firestore (The Database)
+    await DatabaseService().createUserProfile(
+      uid, 
+      _usernameController.text.trim(), 
+      phone
+    );
+
+    // 3. Save to Local Prefs
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', _usernameController.text);
+     await prefs.setString('phone', _phoneController.text);
+          
+    await prefs.setBool('staySignedIn', true);
+
+    if (mounted) Navigator.pushReplacementNamed(context, '/home');
+  }
+        
+         
+        
+         
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() { isLoading = false; });
@@ -46,13 +66,17 @@ class _SignUpPageState extends State<SignUpPage> {
           await prefs.setString('username', _usernameController.text);
           await prefs.setString('phone', phone);
           
-          if (mounted) {
-            Navigator.pushReplacementNamed(
-              context, 
-              '/verfiy', 
-              arguments: verificationId, // Pass ID to next screen
-            );
-          }
+         if (mounted) {
+    Navigator.pushReplacementNamed(
+      context, 
+      '/verfiy', 
+      arguments: {
+        'verificationId': verificationId,
+        'username': _usernameController.text.trim(),
+        'phone': phone,
+      }, 
+    );
+  }
         },
         codeAutoRetrievalTimeout: (String verificationId) {},
       );

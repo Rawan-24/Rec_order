@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:grad_project/screens/MenuItemModel.dart';
-import 'package:grad_project/screens/Restaurant.dart';
+import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/Models/MenuItemModel.dart';
+import 'package:grad_project/Models/Restaurant.dart';
 import 'package:grad_project/screens/MenuItem.dart';
-
+//Done
 class Menu extends StatefulWidget {
 
   static const String routeName = "Menu";
@@ -20,7 +21,7 @@ class Menu extends StatefulWidget {
 
 class _MenuState extends State<Menu> {
   // 1. Full Data Source
-
+final DatabaseService _dbService = DatabaseService(); // Add this
   final List<String> categories = ["All", "Pizza", "Pasta", "Salads", "Drinks"];
 
   // 2. State variables for filtering
@@ -28,17 +29,26 @@ class _MenuState extends State<Menu> {
   List<MenuItemModel> displayedMenu = [];
   String selectedCategory = "All";
   String searchQuery = "";
-
+bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-
-
+_loadMenu();
     fullMenu = widget.restaurant.menu;
     displayedMenu = fullMenu;
   }
-
+void _loadMenu() async {
+    // 1. Fetch from Firestore using the ID of the restaurant passed to this screen
+    List<MenuItemModel> items = await _dbService.getRestaurantMenu(widget.restaurant.id!);
+    
+    // 2. Update the UI
+    setState(() {
+      fullMenu = items;
+      displayedMenu = items;
+      isLoading = false;
+    });
+  }
   // 3. Logic to filter both by Search and Category
   void _filterMenu() {
     setState(() {
@@ -169,7 +179,11 @@ class _MenuState extends State<Menu> {
           const SizedBox(height: 16),
 
           /// Menu List
-          ListView.builder(
+         isLoading 
+  ? const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33)))
+  : displayedMenu.isEmpty 
+    ? const Center(child: Text("No items found"))
+    : ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: displayedMenu.length,

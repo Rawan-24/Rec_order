@@ -1,5 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue, DocumentSnapshot, FirebaseFirestore;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-
+import 'package:grad_project/DatabaseService.dart';
+//Done
 class VoiceSettingsPage extends StatefulWidget {
   const VoiceSettingsPage({super.key});
 
@@ -23,56 +26,181 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   String _selectedLanguage = "English (US)";
 
   final Color primaryRed = const Color(0xFFD32F2F);
+// When a user changes a setting
+Future<void> _saveToCloud() async {
+  try {
+    // Get the current user
+    User? user = FirebaseAuth.instance.currentUser;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Header
-            _buildHeader(),
+    if (user != null) {
+      String uid = user.uid;
 
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildVoiceHint(),
-                  const SizedBox(height: 20),
-                  _buildMainVoiceToggle(),
-
-                  const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.settings_voice, 'Voice Features'),
-                  _buildSettingsGroup([
-                    _buildToggleTile("Voice Feedback", "Hear confirmations for actions", _voiceFeedback, (v) => setState(() => _voiceFeedback = v), Icons.volume_up_outlined),
-                    _buildToggleTile("Wake Word Detection", "Say \"Hey Say-Serve\" to activate", _wakeWord, (v) => setState(() => _wakeWord = v), Icons.bolt),
-                    _buildToggleTile("Auto-Listen", "Always ready for commands", _autoListen, (v) => setState(() => _autoListen = v), Icons.mic_none),
-                    _buildToggleTile("Voice Confirmations", "Confirm orders before placing", _voiceConfirmation, (v) => setState(() => _voiceConfirmation = v), Icons.info_outline),
-                  ]),
-
-                  const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.speed, 'Speech Speed'),
-                  _buildSpeedSelector(),
-
-                  const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.volume_up, 'Voice Volume'),
-                  _buildVolumeSlider(),
-
-                  const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.translate, 'Voice Language'),
-                  _buildLanguageSelector(),
-                  const SizedBox(height: 40),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+      // Call the database service
+  await DatabaseService().updateVoiceSettings(uid, {
+  'speed': _selectedSpeed,
+  'volume': _volume,
+  'language': _selectedLanguage,
+  'wakeWord': _wakeWord,
+  'voiceFeedback': _voiceFeedback,
+  'voiceCommands': _voiceCommands, // Added
+  'autoListen': _autoListen,       // Added
+  'voiceConfirmation': _voiceConfirmation, // Added
+  'lastUpdated': FieldValue.serverTimestamp(),
+});
+      print("Settings synced to cloud successfully.");
+    }
+  } catch (e) {
+    print("Error saving settings: $e");
+    // Optional: Show a small snackbar if the save fails
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to sync settings to cloud"))
+      );
+    }
   }
+}
 
+
+
+
+
+
+
+
+@override
+void dispose() {
+  _saveToCloud(); // Saves the final state when user leaves the page
+  super.dispose();
+}
+@override
+void initState() {
+  super.initState();
+  _loadSettingsFromServer();
+}
+
+Future<void> _loadSettingsFromServer() async {
+  User? user = FirebaseAuth.instance.currentUser;
+  if (user != null) {
+    DocumentSnapshot userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    if (userDoc.exists && userDoc.data() != null) {
+      Map<String, dynamic> data = userDoc.data() as Map<String, dynamic>;
+      
+      // Look for our nested voiceSettings map
+      if (data.containsKey('voiceSettings')) {
+        Map<String, dynamic> settings = data['voiceSettings'];
+        
+        setState(() {
+          _selectedSpeed = settings['speed'] ?? "1.0x Normal";
+          _volume = (settings['volume'] ?? 80.0).toDouble();
+          _selectedLanguage = settings['language'] ?? "English (US)";
+          _wakeWord = settings['wakeWord'] ?? true;
+          _voiceFeedback = settings['voiceFeedback'] ?? true;
+          // Add any other variables you're tracking here
+        });
+      }
+    }
+  }
+}
+// --- THE BUILD METHOD (Usage) ---
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    backgroundColor: const Color(0xFFF8F9FA),
+    body: SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildHeader(),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildVoiceHint(),
+                const SizedBox(height: 20),
+                _buildMainVoiceToggle(),
+                const SizedBox(height: 25),
+
+                // THIS IS WHERE YOU CALL THE HELPERS
+                _buildSectionHeader(Icons.settings_voice, 'Voice Features'),
+                _buildSettingsGroup([
+                  _buildToggleTile(
+                    "Voice Feedback", 
+                    "Hear confirmations for actions", 
+                    _voiceFeedback, 
+                    (v) {
+                      setState(() => _voiceFeedback = v);
+                      _saveToCloud();
+                    }, 
+                    Icons.volume_up_outlined
+                  ),
+                  _buildToggleTile(
+                    "Wake Word Detection", 
+                    "Say \"Hey Say-Serve\" to activate", 
+                    _wakeWord, 
+                    (v) {
+                      setState(() => _wakeWord = v);
+                      _saveToCloud();
+                    }, 
+                    Icons.bolt
+                  ),
+                  _buildToggleTile(
+                    "Auto-Listen", 
+                    "Always ready for commands", 
+                    _autoListen, 
+                    (v) {
+                      setState(() => _autoListen = v);
+                      _saveToCloud();
+                    }, 
+                    Icons.mic_none
+                  ),
+                  _buildToggleTile(
+                    "Voice Confirmations", 
+                    "Confirm orders before placing", 
+                    _voiceConfirmation, 
+                    (v) {
+                      setState(() => _voiceConfirmation = v);
+                      _saveToCloud();
+                    }, 
+                    Icons.info_outline
+                  ),
+                ]),
+
+                const SizedBox(height: 25),
+                _buildSectionHeader(Icons.speed, 'Speech Speed'),
+                _buildSpeedSelector(),
+
+                const SizedBox(height: 25),
+                _buildSectionHeader(Icons.volume_up, 'Voice Volume'),
+                _buildVolumeSlider(),
+
+                const SizedBox(height: 25),
+                _buildSectionHeader(Icons.translate, 'Voice Language'),
+                _buildLanguageSelector(),
+                const SizedBox(height: 40),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// --- THE HELPER METHOD (Definition) ---
+// Keep this simple!
+Widget _buildSettingsGroup(List<Widget> children) {
+  return Container(
+    decoration: BoxDecoration(
+      color: Colors.white, 
+      borderRadius: BorderRadius.circular(15)
+    ),
+    child: Column(children: children),
+  );
+}
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -142,7 +270,12 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
               Text('Active and listening', style: TextStyle(color: Colors.grey, fontSize: 14)),
             ]),
           ),
-          Switch(value: _voiceCommands, onChanged: (v) => setState(() => _voiceCommands = v), activeColor: primaryRed),
+          Switch(value: _voiceCommands,
+          onChanged: (v) {
+            setState(() => _voiceCommands = v);
+            _saveToCloud(); // <--- Add this
+          }
+          , activeThumbColor: primaryRed),
         ],
       ),
     );
@@ -160,7 +293,12 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
             children: speeds.map((s) => ChoiceChip(
               label: Text(s),
               selected: _selectedSpeed == s,
-              onSelected: (selected) => setState(() => _selectedSpeed = s),
+              onSelected: (selected) {
+  if (selected) {
+    setState(() => _selectedSpeed = s);
+    _saveToCloud(); // <--- Add this
+  }
+},
               selectedColor: primaryRed,
               labelStyle: TextStyle(color: _selectedSpeed == s ? Colors.white : Colors.black),
             )).toList(),
@@ -186,6 +324,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
             value: _volume, min: 0, max: 100,
             activeColor: primaryRed, inactiveColor: Colors.red[100],
             onChanged: (v) => setState(() => _volume = v),
+            onChangeEnd: (v) => _saveToCloud(),
           ),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             const Text("Silent", style: TextStyle(color: Colors.grey)),
@@ -207,7 +346,10 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           value: l,
           groupValue: _selectedLanguage,
           activeColor: primaryRed,
-          onChanged: (v) => setState(() => _selectedLanguage = v.toString()),
+          onChanged: (v) {
+  setState(() => _selectedLanguage = v.toString());
+  _saveToCloud(); // <--- Add this
+},
         )).toList(),
       ),
     );
@@ -225,19 +367,19 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildSettingsGroup(List<Widget> children) {
-    return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
-      child: Column(children: children),
-    );
-  }
 
-  Widget _buildToggleTile(String title, String sub, bool val, Function(bool) onChanged, IconData icon) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.black45),
-      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-      subtitle: Text(sub, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      trailing: Switch(value: val, onChanged: _voiceCommands ? onChanged : null, activeColor: primaryRed),
-    );
-  }
+// This is just a "template" for a single row
+Widget _buildToggleTile(String title, String sub, bool val, Function(bool) onChanged, IconData icon) {
+  return ListTile(
+    leading: Icon(icon, color: Colors.black45),
+    title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+    subtitle: Text(sub, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+    trailing: Switch(
+      value: val, 
+      onChanged: _voiceCommands ? onChanged : null, // Disables if main voice is off
+      activeThumbColor: primaryRed
+    ),
+  );
+}
+
 }
