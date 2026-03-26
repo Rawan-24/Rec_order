@@ -1,25 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:grad_project/screens/Language_Selection.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Rec-Order',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primaryColor: const Color(0xFF4169E1),
-      ),
-      home: const RecOrderSplashScreen(),
-    );
-  }
-}
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class RecOrderSplashScreen extends StatefulWidget {
   const RecOrderSplashScreen({super.key});
@@ -28,24 +10,42 @@ class RecOrderSplashScreen extends StatefulWidget {
   State<RecOrderSplashScreen> createState() => _RecOrderSplashScreenState();
 }
 
-class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with SingleTickerProviderStateMixin {
+class _RecOrderSplashScreenState extends State<RecOrderSplashScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
 
   @override
   void initState() {
     super.initState();
+
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat();
-    Future.delayed(const Duration(seconds: 3), () {
+
+    checkLogin(); // 🔥 check login instead of fixed navigation
+  }
+
+  Future<void> checkLogin() async {
+    await Future.delayed(const Duration(seconds: 3)); // splash duration
+
+    final prefs = await SharedPreferences.getInstance();
+    bool staySignedIn = prefs.getBool("staySignedIn") ?? false;
+
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (!mounted) return;
+
+    if (staySignedIn && user != null) {
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (context) => const LanguageSelectionScreen(),
         ),
       );
-    });
+    }
   }
 
   @override
@@ -58,16 +58,17 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with Single
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Microphone icon with red background
+            /// Mic icon
             Container(
               width: 120,
               height: 120,
               decoration: BoxDecoration(
-                color: const Color(0xFFEB1B33), // Red color
+                color: const Color(0xFFEB1B33),
                 borderRadius: BorderRadius.circular(30),
                 boxShadow: [
                   BoxShadow(
@@ -86,14 +87,13 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with Single
 
             const SizedBox(height: 30),
 
-            // Image logo instead of text "Rec-Order"
+            /// Logo
             Image.asset(
-              'assets/images/logo.png', // Path to your logo image
+              'assets/images/logo.png',
               width: 200,
               height: 60,
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
-                // Fallback in case image doesn't load
                 return const Text(
                   'Rec-Order',
                   style: TextStyle(
@@ -108,7 +108,7 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with Single
 
             const SizedBox(height: 15),
 
-            // Tagline
+            /// Tagline
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 30),
               child: Column(
@@ -137,7 +137,7 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with Single
 
             const SizedBox(height: 40),
 
-            // Moving dots animation
+            /// Animated dots
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -147,10 +147,8 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with Single
               ],
             ),
           ],
-
         ),
       ),
-
 
       bottomNavigationBar: const BottomAppBar(
         color: Colors.white,
@@ -209,8 +207,8 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen> with Single
           margin: const EdgeInsets.symmetric(horizontal: 5),
           width: 12 * animation.value,
           height: 12 * animation.value,
-          decoration: BoxDecoration(
-            color: const Color(0xFFEB1B33),
+          decoration: const BoxDecoration(
+            color: Color(0xFFEB1B33),
             shape: BoxShape.circle,
           ),
         );
