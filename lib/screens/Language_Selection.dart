@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 
@@ -49,34 +51,51 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
   }
 
   // UPDATED: Now saves to database
-  void selectLanguage(String language) async {
-    if (isSaving) return; // Prevent double taps
+void selectLanguage(String code) async {
+    // 1. Prevent double taps and stop listening
+    if (isSaving) return; 
 
     setState(() => isSaving = true);
     speech.stop();
 
     try {
-      // 1. Save to Firestore
-      await DatabaseService().updateUserLanguage(language);
-      
-      // 2. Audio Confirmation
-      await confirmLanguage(language);
+      // 2. Map the code to a readable string for the voice confirmation
+      String displayLang = (code == 'ar') ? "Arabic" : "English";
 
-      // 3. Small delay for better UX
+      // 3. Update the Global Provider (This flips the UI to RTL instantly)
+      final languageProvider = Provider.of<LanguageProvider>(context, listen: false);
+      languageProvider.setLanguage(code);
+
+      // 4. Update the TTS voice language for the feedback
+      if (code == 'ar') {
+        await tts.setLanguage("ar-SA");
+      } else {
+        await tts.setLanguage("en-US");
+      }
+
+      // 5. Save preference to Firestore (Your existing Database Logic)
+      // Note: Make sure the 'code' is what your DB expects (e.g., 'en' or 'ar')
+      await DatabaseService().updateUserLanguage(code);
+
+      // 6. Audio Confirmation
+      await confirmLanguage(displayLang);
+
+      // 7. Small delay for better UX
       await Future.delayed(const Duration(seconds: 1));
 
       if (mounted) {
-        // 4. Navigate to Tutorial
+        // 8. Navigate to Tutorial (or /home depending on your flow)
         Navigator.pushReplacementNamed(context, '/tutorial1');
       }
     } catch (e) {
-      setState(() => isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error saving language preference: $e")),
-      );
+      if (mounted) {
+        setState(() => isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error saving language preference: $e")),
+        );
+      }
     }
   }
-
   Widget languageButton(String code, String text) {
     return InkWell(
       onTap: isSaving ? null : () => selectLanguage(text),

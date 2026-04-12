@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
 
@@ -19,6 +20,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
+    final cart = Provider.of<CartProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
       appBar: AppBar(
@@ -28,7 +32,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("Payment", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: Text(lp.getText('payment_title'), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -50,58 +54,60 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 color: const Color(0xFFD6E0E0),
                 borderRadius: BorderRadius.circular(15),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.mic, color: Colors.teal, size: 20),
-                  SizedBox(width: 10),
-                  Text('Say "Pay with card" or "Cash on delivery"',
-                      style: TextStyle(color: Colors.black54, fontSize: 13)),
+                  const Icon(Icons.mic, color: Colors.teal, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(lp.getText('payment_voice_hint'),
+                        style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 30),
-            const Text("Select Payment Method", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(lp.getText('select_payment_method'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 15),
             _buildPaymentOption(
               id: 'card',
-              title: "Credit / Debit Card",
-              subtitle: "Secure payment",
+              title: lp.getText('credit_card'),
+              subtitle: lp.getText('secure_payment'),
               icon: Icons.credit_card,
             ),
             const SizedBox(height: 10),
             _buildPaymentOption(
               id: 'cash',
-              title: "Cash on Delivery",
-              subtitle: "Pay when you receive",
+              title: lp.getText('cash_on_delivery'),
+              subtitle: lp.getText('pay_on_receive'),
               icon: Icons.money,
             ),
             const SizedBox(height: 30),
             if (selectedMethod == 'card') ...[
-              const Text("Card Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(lp.getText('card_details'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
-              _buildTextField("Card Number", "1234 5678 9012 3456"),
+              _buildTextField(lp.getText('card_number'), "1234 5678 9012 3456"),
               const SizedBox(height: 15),
               Row(
                 children: [
-                  Expanded(child: _buildTextField("Expiry Date", "MM/YY")),
+                  Expanded(child: _buildTextField(lp.getText('expiry_date'), "MM/YY")),
                   const SizedBox(width: 15),
-                  Expanded(child: _buildTextField("CVV", "123")),
+                  Expanded(child: _buildTextField(lp.getText('cvv'), "123")),
                 ],
               ),
               const SizedBox(height: 25),
-              const Text("Confirmation", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(lp.getText('confirmation'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
-              _buildVoicePinButton(),
+              _buildVoicePinButton(lp),
             ],
             const SizedBox(height: 20),
-            _buildSecurePaymentNote(),
+            _buildSecurePaymentNote(lp),
             const SizedBox(height: 20),
-            _buildOrderSummary(),
+            _buildOrderSummary(lp, cart),
             const SizedBox(height: 100),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomPayButton(),
+      bottomNavigationBar: _buildBottomPayButton(lp, cart),
     );
   }
 
@@ -155,7 +161,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  Widget _buildVoicePinButton() {
+  Widget _buildVoicePinButton(LanguageProvider lp) {
     final Color backgroundColor = isVoiceConfirmed ? const Color(0xFFEB1B33) : Colors.white;
     final Color contentColor = isVoiceConfirmed ? Colors.white : Colors.black87;
     final Color subTextColor = isVoiceConfirmed ? Colors.white70 : Colors.grey;
@@ -181,8 +187,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("Voice PIN Confirmation", style: TextStyle(color: contentColor, fontWeight: FontWeight.bold, fontSize: 18)),
-                    Text("Speak your 4-digit PIN", style: TextStyle(color: subTextColor, fontSize: 13)),
+                    Text(lp.getText('voice_pin_title'), style: TextStyle(color: contentColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                    Text(lp.getText('voice_pin_sub'), style: TextStyle(color: subTextColor, fontSize: 13)),
                   ],
                 ),
               ),
@@ -194,45 +200,43 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  Widget _buildSecurePaymentNote() {
+  Widget _buildSecurePaymentNote(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(color: Colors.green.withOpacity(0.05), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.green.withOpacity(0.2))),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.lock_outline, color: Colors.green, size: 20),
-          SizedBox(width: 10),
-          Expanded(child: Text("Secure Payment\nYour payment information is encrypted and secure.", style: TextStyle(color: Colors.black54, fontSize: 12))),
+          const Icon(Icons.lock_outline, color: Colors.green, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(lp.getText('secure_note'), style: const TextStyle(color: Colors.black54, fontSize: 12))),
         ],
       ),
     );
   }
 
-  Widget _buildOrderSummary() {
-    final cart = Provider.of<CartProvider>(context);
+  Widget _buildOrderSummary(LanguageProvider lp, CartProvider cart) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
       child: Column(
         children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Subtotal"), Text("\$${cart.subtotal.toStringAsFixed(2)}")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('subtotal')), Text(" ${cart.subtotal.toStringAsFixed(2)}")]),
           const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Delivery Fee"), Text("\$${cart.deliveryFee.toStringAsFixed(2)}")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('delivery_fee')), Text(" ${cart.deliveryFee.toStringAsFixed(2)}")]),
           const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Tax"), Text("\$${cart.tax.toStringAsFixed(2)}")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('tax')), Text(" ${cart.tax.toStringAsFixed(2)}")]),
           const Divider(height: 30),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text("Total", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text("\$${cart.total.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFEB1B33)))
+            Text(lp.getText('total'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            Text(" ${cart.total.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFEB1B33)))
           ]),
         ],
       ),
     );
   }
 
-  Widget _buildBottomPayButton() {
-    final cart = Provider.of<CartProvider>(context);
+  Widget _buildBottomPayButton(LanguageProvider lp, CartProvider cart) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
       color: Colors.white,
@@ -247,22 +251,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
             User? user = FirebaseAuth.instance.currentUser;
             if (user != null) {
               try {
-                // Show loading indicator
                 showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator()));
 
                 String orderId = await DatabaseService().placeOrder(
                   userId: user.uid,
                   total: cart.total,
                   paymentMethod: selectedMethod,
-                  // FIX: Don't pass ''. Pass the actual name from the first item in the cart.
-
                   restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
                       ? "Multi-Restaurant Order"
                       : cart.items.first.restaurant,
-                  // FIX: Pass the image from the first item.
                   restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
-
-                  // FIX: Pass your actual cart items list to BOTH parameters just to be safe
                   items: cart.items,
                   cartItems: cart.items,
                 );
@@ -272,14 +270,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
               } catch (e) {
                 Navigator.pop(context); // Remove loading
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${lp.getText('error')}: $e")));
               }
             }
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please confirm your Voice PIN first")));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('confirm_voice_first'))));
           }
         },
-        child: Text("Confirm & Pay \$${cart.total.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        child: Text("${lp.getText('confirm_and_pay')}  ${cart.total.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
       ),
     );
   }

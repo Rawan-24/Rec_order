@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/Models/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
@@ -17,7 +18,14 @@ class MenuItem extends StatefulWidget {
 }
 
 class _MenuItem extends State<MenuItem> {
+  late LanguageProvider lp; // Declare it here
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   // Data State
   double basePrice = 12.99;
   String selectedSize = 'Medium';
@@ -41,6 +49,7 @@ class _MenuItem extends State<MenuItem> {
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
     return Scaffold(
       backgroundColor: Color(0xFFF4EDE4),
       body: SingleChildScrollView(
@@ -82,7 +91,7 @@ class _MenuItem extends State<MenuItem> {
                   const SizedBox(height: 25),
 
                   // Size Selection
-                  const Text("Select Size", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(lp.getText('select_size'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 15),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -92,7 +101,7 @@ class _MenuItem extends State<MenuItem> {
                   const SizedBox(height: 25),
 
                   // Add-ons Selection
-                  const Text("Add-ons", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(lp.getText('add_ons'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ...widget.item.availableAddOns.keys.map((addon) =>
                       _buildAddOnTile(addon, widget.item.availableAddOns[addon]!)
                   ),
@@ -100,7 +109,7 @@ class _MenuItem extends State<MenuItem> {
                   const SizedBox(height: 25),
 
                   // Quantity
-                  const Text("Quantity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                   Text(lp.getText('quantity'),style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -134,7 +143,7 @@ class _MenuItem extends State<MenuItem> {
         ),
         child: Column(
           children: [
-            Text(size, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
+            Text(lp.getText('size_${size.toLowerCase()}'), style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
             if (size == 'Large') Text("+\$3", style: TextStyle(color: isSelected ? Colors.white70 : Colors.grey, fontSize: 12)),
           ],
         ),
@@ -196,7 +205,7 @@ class _MenuItem extends State<MenuItem> {
               id: DateTime.now().toString(),
               name: widget.item.name, // You can pass this via constructor later
            restaurant: widget.restaurantName,
-              details: "$selectedSize • ${selectedAddOns.join(', ')}",
+              details: "${lp.getText('size_${selectedSize.toLowerCase()}')} • ${selectedAddOns.join(', ')}",
               price: totalPrice / quantity, // Base price per item
               quantity: quantity, image: '',
             ));
@@ -208,13 +217,13 @@ class _MenuItem extends State<MenuItem> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.shopping_cart_outlined, color: Colors.white),
-                  SizedBox(width: 10),
+                  const Icon(Icons.shopping_cart_outlined, color: Colors.white),
+                  const SizedBox(width: 10),
                   Text(
-                    "Add to Cart",
-                    style: TextStyle(
+                  lp.getText('add_to_cart'),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,

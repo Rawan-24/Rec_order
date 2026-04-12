@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/Models/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
@@ -15,7 +16,14 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
 
+late LanguageProvider lp; // Declare it here
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   // 2. Pricing Constants
   final double deliveryFee = 3.99;
   final double taxRate = 0.08; // 8%
@@ -24,6 +32,9 @@ class _CartScreenState extends State<CartScreen> {
   Widget build(BuildContext context) {
     // 1. Listen to the CartProvider
     final cart = Provider.of<CartProvider>(context);
+  
+
+
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
@@ -34,7 +45,7 @@ class _CartScreenState extends State<CartScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("Your Cart", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: Text(lp.getText('your_cart'), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: Column(
@@ -80,13 +91,13 @@ class _CartScreenState extends State<CartScreen> {
               color: const Color(0xFFD6E0E0),
               borderRadius: BorderRadius.circular(15),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.mic, color: Colors.teal, size: 20),
-                SizedBox(width: 10),
+                const Icon(Icons.mic, color: Colors.teal, size: 20),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Text('Say "Remove first item" or "Add more quantity"',
-                      style: TextStyle(fontSize: 13, color: Colors.black54)),
+                  child: Text( lp.getText('cart_voice_hint'),
+                      style: const TextStyle(fontSize: 13, color: Colors.black54)),
                 ),
               ],
             ),
@@ -169,11 +180,11 @@ class _CartScreenState extends State<CartScreen> {
       child: Column(
         children: [
 
-          _summaryRow("Subtotal", cart.subtotal),
-          _summaryRow("Delivery Fee", cart.deliveryFee),
-          _summaryRow("Tax", cart.tax),
+          _summaryRow(lp.getText('subtotal'), cart.subtotal),
+          _summaryRow(lp.getText('delivery_fee'), cart.deliveryFee),
+          _summaryRow(lp.getText('tax'), cart.tax),
           const Divider(),
-          _summaryRow("Total", cart.total, isBold: true),
+          _summaryRow(lp.getText('total'), cart.total, isBold: true),
           const SizedBox(height: 20),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -185,7 +196,7 @@ class _CartScreenState extends State<CartScreen> {
               // Navigate to CheckOut
               Navigator.push(context, MaterialPageRoute(builder: (context) => PaymentScreen()));
             },
-            child: const Text("Proceed to Checkout", style: TextStyle(color: Colors.white, fontSize: 18)),
+            child: Text(lp.getText('proceed_to_checkout'), style: const TextStyle(color: Colors.white, fontSize: 18)),
           ),
         ],
       ),

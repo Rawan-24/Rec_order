@@ -1,28 +1,44 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
-import 'dart:async'; // Add this import
-
-
+import 'dart:async';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 
 class TrackOrderScreen extends StatefulWidget {
-  final String? orderId; // Nullable to handle entries from Home with no order
+  final String? orderId;
   const TrackOrderScreen({super.key, this.orderId});
 
   @override
   State<TrackOrderScreen> createState() => _TrackOrderScreenState();
-
-
 }
 
 class _TrackOrderScreenState extends State<TrackOrderScreen> {
+  final FlutterTts tts = FlutterTts();
+  String lastStatus = "";
 
+  @override
+  void dispose() {
+    tts.stop();
+    super.dispose();
+  }
+
+  Future<void> _speakStatus(String status, LanguageProvider lp) async {
+    if (status == lastStatus) return; // Don't repeat if status hasn't changed
+    lastStatus = status;
+
+    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+    String message = lp.getText('status_voice_prefix') + " " + lp.getText('status_${status.toLowerCase().replaceAll(' ', '_')}');
+    await tts.speak(message);
+  }
 
   @override
   Widget build(BuildContext context) {
-    // --- 1. PREVENT CRASH: Guard clause for empty or null ID ---
+    final lp = Provider.of<LanguageProvider>(context);
+
     if (widget.orderId == null || widget.orderId!.isEmpty) {
-      return _buildNoOrderState();
+      return Scaffold(body: _buildNoOrderState(lp));
     }
 
     return Scaffold(
@@ -31,12 +47,12 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(lp.isEnglish ? Icons.arrow_back : Icons.arrow_forward, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          "Track Order",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        title: Text(
+          lp.getText('track_order_title'),
+          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
@@ -47,175 +63,119 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
             return const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33)));
           }
 
-          // --- 2. PREVENT CRASH: Check if document exists in Firestore ---
           if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
-            return _buildNoOrderState();
+            return _buildNoOrderState(lp);
           }
 
-          // Extracting the map from Firestore
           var orderData = snapshot.data!.data() as Map<String, dynamic>;
-
-// --- DYNAMIC DATA MAPPING ---
-
-// 1. Get the list of items from Firestore
           List items = orderData['items'] ?? [];
-
-// 2. Extract every restaurant name, remove duplicates (toSet),
-// and join them with a comma.
-          String restaurantDisplay = items
-              .map((item) => item['restaurant']?.toString() ?? "") // Get all names
-              .where((name) => name.isNotEmpty)                   // Remove empty ones
-              .toSet()                                            // Remove duplicates
-              .join(", ");                                        // Result: "Pizza Hut, KFC"
-
-// 3. Fallback if something goes wrong
-          if (restaurantDisplay.isEmpty) {
-            restaurantDisplay = orderData['restaurantName'] ?? "RecOrder Partner";
-          }
-// Try the top level field first
-          String? topName = orderData['restaurantName'];
-
-// If that's empty, try to get it from the first item in the list
-
-          String? itemName = (items.isNotEmpty) ? items.first['restaurant'] : null;
-
-// The final name to display
-
-// 1. First, try to get the top-level 'restaurantName'
-          String topLevelName = orderData['restaurantName'] ?? "";
-
-// 2. Second, get all names from the items list (as a backup or for multiple)
-
-          String itemsNames = items.map((i) => i['restaurant']?.toString() ?? "").toSet().where((name) => name.isNotEmpty).join(", ");
-
-
-          String driverName = orderData['driverName'] ?? "Searching for driver...";
-          String driverRating = orderData['driverRating'] ?? "5.0";
-// 3. DYNAMIC ITEM COUNT
-// Instead of just items.length, we sum the 'quantity' from each CartItem
-          int totalQuantity = items.fold(0, (sum, item) => sum + (item['quantity'] as int? ?? 1));
-
-// 4. OTHER FIELDS
           String status = orderData['status'] ?? "Pending";
+
+          // Trigger TTS for status updates
+          _speakStatus(status, lp);
+
+          // Restaurant Logic
+          String restaurantDisplay = items
+              .map((item) => item['restaurant']?.toString() ?? "")
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .join(", ");
+
+          if (restaurantDisplay.isEmpty) {
+            restaurantDisplay = orderData['restaurantName'] ?? lp.getText('recorder_partner');
+          }
+
+          String driverName = orderData['driverName'] ?? lp.getText('searching_driver');
+          String driverRating = orderData['driverRating'] ?? "5.0";
+          int totalQuantity = items.fold(0, (sum, item) => sum + (item['quantity'] as int? ?? 1));
           double total = (orderData['totalPrice'] as num?)?.toDouble() ?? 0.0;
           String orderNumber = orderData['orderNumber'] ?? widget.orderId!.substring(0, 5);
-// 1. DYNAMIC TIME CALCULATION
 
-
-
-
-          String estimate ;
-          String footer = "Your food is almost there!";
-
+          // Estimate Logic
+          String estimate;
           if (status == "Delivered") {
-            estimate = "Arrived";
-          } else if (status == "Preparing") {
-            estimate = "20";
-          } else if (status == "Ready") {
-            estimate = "15";
-          } else if (status == "On the Way") {
-            estimate = "10";
+            estimate = lp.getText('status_arrived');
           } else {
-            // This handles "Pending" or any unexpected status from DB
-            estimate = "25";
+            int baseTime = status == "Preparing" ? 20 : (status == "Ready" ? 15 : (status == "On the Way" ? 10 : 25));
+            int restaurantCount = items.map((i) => i['restaurant']).toSet().length;
+            int finalTime = restaurantCount > 1 ? (baseTime + (restaurantCount - 1) * 8) : baseTime;
+            estimate = "$finalTime ${lp.getText('unit_minutes')}";
           }
-// 2. APPLYING THE MULTI-RESTAURANT LOGIC
-          int restaurantCount = items.map((i) => i['restaurant']).toSet().length;
 
-          if (restaurantCount > 1 && status != "Delivered" && status != "Pending") {
-            // Parse the base number we just set above
-            int currentMin = int.tryParse(estimate) ?? 15;
-            estimate = "${currentMin + (restaurantCount - 1) * 8} min";
-          } else if (status != "Delivered") {
-            // Add "min" suffix if it hasn't been added yet
-            estimate = estimate.contains("min") ? estimate : "$estimate min";
-          }
-// 3. SETTING THE RED STATUS BOOLEANS
-// This logic makes the steps turn red ONLY when the DB status matches
           bool isConfirmed = true;
           bool isReady = ["Ready", "On the Way", "Delivered"].contains(status);
           bool isOnWay = ["On the Way", "Delivered"].contains(status);
           bool isDelivered = status == "Delivered";
+
           return SingleChildScrollView(
             child: Column(
               children: [
-                _buildVoiceHeader(),
+                _buildVoiceHeader(lp),
                 Padding(
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
                     children: [
-                      _buildArrivalCard(status, estimate), // Pass the new string here // Dynamic arrival info
+                      _buildArrivalCard(status, estimate, lp),
                       const SizedBox(height: 20),
                       _buildMapSection(),
                       const SizedBox(height: 20),
-
-                      // --- Dynamic Stepper Logic ---
                       _buildSectionCard(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: lp.isEnglish ? CrossAxisAlignment.start : CrossAxisAlignment.end,
                           children: [
-                            const Text("Order Status", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text(lp.getText('order_status_header'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 20),
-
-                            // Step 1: Confirmed
                             _buildStatusStep(
-                              title: "Order Confirmed",
-                              subtitle: "Restaurant has received your request",
+                              lp: lp,
+                              title: lp.getText('step_confirmed_title'),
+                              subtitle: lp.getText('step_confirmed_sub'),
                               icon: Icons.check,
-                              isCompleted: isConfirmed, // Red immediately
+                              isCompleted: isConfirmed,
                               showLine: true,
                             ),
-
-                            // Step 2: Food Ready
                             _buildStatusStep(
-                              title: "Food Ready",
-                              subtitle: "Chef has finished preparing",
+                              lp: lp,
+                              title: lp.getText('step_ready_title'),
+                              subtitle: lp.getText('step_ready_sub'),
                               icon: Icons.inventory_2_outlined,
-                              isCompleted: isReady, // Turns red when time <= 15 mins
-                              isInProgress: status == "Preparing" && !isReady,
+                              isCompleted: isReady,
+                              isInProgress: status == "Preparing",
                               showLine: true,
                             ),
-
-                            // Step 3: On the Way
                             _buildStatusStep(
-                              title: "On the Way",
-                              subtitle: "Driver is heading to you",
+                              lp: lp,
+                              title: lp.getText('step_way_title'),
+                              subtitle: lp.getText('step_way_sub'),
                               icon: Icons.local_shipping_outlined,
-                              isCompleted: isOnWay, // Turns red when time <= 10 mins
-                              isInProgress: status == "On the Way" && !isOnWay,
+                              isCompleted: isOnWay,
+                              isInProgress: status == "On the Way",
                               showLine: true,
                             ),
-
-                            // Step 4: Delivered
                             _buildStatusStep(
-                              title: "Delivered",
-                              subtitle: "Enjoy your meal!",
+                              lp: lp,
+                              title: lp.getText('step_delivered_title'),
+                              subtitle: lp.getText('step_delivered_sub'),
                               icon: Icons.home_outlined,
-                              isCompleted: isDelivered, // Turns red at 0 mins or Delivered status
+                              isCompleted: isDelivered,
                               showLine: false,
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _buildDriverSection(driverName, driverRating), // Dynamic Driver info
+                      _buildDriverSection(driverName, driverRating, lp),
                       const SizedBox(height: 20),
-
-                      // --- Final Order Summary ---
                       _buildSectionCard(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: lp.isEnglish ? CrossAxisAlignment.start : CrossAxisAlignment.end,
                           children: [
-                            const Text("Order Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text(lp.getText('order_details_header'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 15),
-                            _buildDetailRow("Order ID", "#$orderNumber"),
-                            // Shows all unique restaurants in this order
-                            _buildDetailRow("Restaurant", restaurantDisplay),
-
-                            // Shows total quantity (e.g., if I bought 2 pizzas, it shows 2 items)
-                            _buildDetailRow("Items", "$totalQuantity items"),
+                            _buildDetailRow(lp.getText('detail_order_id'), "#$orderNumber", lp),
+                            _buildDetailRow(lp.getText('detail_restaurant'), restaurantDisplay, lp),
+                            _buildDetailRow(lp.getText('detail_items'), "$totalQuantity ${lp.getText('unit_items')}", lp),
                             const Divider(height: 30),
-                            _buildDetailRow("Total", "\$${total.toStringAsFixed(2)}", isTotal: true),
+                            _buildDetailRow(lp.getText('detail_total'), "\$${total.toStringAsFixed(2)}", lp, isTotal: true),
                           ],
                         ),
                       ),
@@ -231,24 +191,16 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     );
   }
 
-  // --- Helper: No Order State UI ---
-  Widget _buildNoOrderState() {
-    // REMOVE: Scaffold and AppBar here
+  Widget _buildNoOrderState(LanguageProvider lp) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.shopping_bag_outlined, size: 100, color: Colors.grey[300]),
           const SizedBox(height: 20),
-          const Text(
-            "No Active Orders",
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
+          Text(lp.getText('no_active_orders'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
-          const Text(
-            "You don't have any orders to track right now.",
-            style: TextStyle(color: Colors.grey),
-          ),
+          Text(lp.getText('no_active_orders_sub'), style: const TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -257,15 +209,14 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () => Navigator.pop(context),
-            child: const Text("Go Back", style: TextStyle(color: Colors.white, fontSize: 16)),
+            child: Text(lp.getText('go_back_btn'), style: const TextStyle(color: Colors.white, fontSize: 16)),
           )
         ],
       ),
     );
   }
-  // --- UI Components ---
 
-  Widget _buildVoiceHeader() {
+  Widget _buildVoiceHeader(LanguageProvider lp) {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.only(bottom: 25),
@@ -284,11 +235,12 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
               color: const Color(0xFFE0F2F1),
               borderRadius: BorderRadius.circular(15),
             ),
-            child: const Row(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.mic, color: Color(0xFFEB1B33), size: 20),
-                SizedBox(width: 10),
-                Text('Say "Where is my order?"', style: TextStyle(color: Colors.blueGrey, fontSize: 13)),
+                const Icon(Icons.mic, color: Color(0xFFEB1B33), size: 20),
+                const SizedBox(width: 10),
+                Text(lp.getText('voice_prompt_track'), style: const TextStyle(color: Colors.blueGrey, fontSize: 13)),
               ],
             ),
           ),
@@ -296,39 +248,31 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
       ),
     );
   }
-  Widget _buildArrivalCard(String status, String arrivalTime) {
-    String footer = "Your food is almost there!";
 
-    if (status == "Delivered") {
-      footer = "Order completed";
-    } else if (status == "Preparing") {
-      footer = "Chef is cooking your meal";
-    } else if (status == "On the Way") {
-      footer = "Driver is heading to your location";
-    }
+  Widget _buildArrivalCard(String status, String arrivalTime, LanguageProvider lp) {
+    String footer = lp.getText('footer_almost_there');
+    if (status == "Delivered") footer = lp.getText('footer_completed');
+    else if (status == "Preparing") footer = lp.getText('footer_cooking');
+    else if (status == "On the Way") footer = lp.getText('footer_heading_to_you');
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(25),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(25),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF4527A0), Color(0xFF00695C)],
-        ),
+        gradient: const LinearGradient(colors: [Color(0xFF4527A0), Color(0xFF00695C)]),
       ),
       child: Column(
         children: [
-          const Text("Estimated Arrival", style: TextStyle(color: Colors.white70, fontSize: 16)),
+          Text(lp.getText('arrival_estimate_label'), style: const TextStyle(color: Colors.white70, fontSize: 16)),
           const SizedBox(height: 5),
-          Text(
-            arrivalTime, // Use the dynamic string here!
-            style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold),
-          ),
+          Text(arrivalTime, style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
           Text(footer, style: const TextStyle(color: Colors.white, fontSize: 16)),
         ],
       ),
     );
   }
+
   Widget _buildMapSection() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(25),
@@ -339,7 +283,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     );
   }
 
-  Widget _buildDriverSection(String name, String rating) {
+  Widget _buildDriverSection(String name, String rating, LanguageProvider lp) {
     return _buildSectionCard(
       child: Row(
         children: [
@@ -347,17 +291,14 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
           const SizedBox(width: 15),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: lp.isEnglish ? CrossAxisAlignment.start : CrossAxisAlignment.end,
               children: [
                 Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text("$rating ★ Rider", style: const TextStyle(color: Colors.grey)),
+                Text("$rating ★ ${lp.getText('rider_label')}", style: const TextStyle(color: Colors.grey)),
               ],
             ),
           ),
-          IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.call, color: Color(0xFF00695C))
-          ),
+          IconButton(onPressed: () {}, icon: const Icon(Icons.call, color: Color(0xFF00695C))),
         ],
       ),
     );
@@ -376,12 +317,11 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     );
   }
 
-  Widget _buildStatusStep({required String title, required String subtitle, required IconData icon, required bool isCompleted, required bool showLine, bool isInProgress = false}) {
+  Widget _buildStatusStep({required LanguageProvider lp, required String title, required String subtitle, required IconData icon, required bool isCompleted, required bool showLine, bool isInProgress = false}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
+      textDirection: lp.isEnglish ? TextDirection.ltr : TextDirection.rtl,
       children: [
-
-
         Column(
           children: [
             Container(
@@ -392,18 +332,14 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
               ),
               child: Icon(icon, color: isCompleted ? Colors.white : Colors.grey[600], size: 22),
             ),
-// Inside _buildStatusStep helper
             if (showLine)
-              Container(
-                  width: 2,
-                  height: 40,
-                  color: isCompleted ? const Color(0xFFEB1B33) : Colors.grey[300]
-              ),          ],
+              Container(width: 2, height: 40, color: isCompleted ? const Color(0xFFEB1B33) : Colors.grey[300]),
+          ],
         ),
         const SizedBox(width: 15),
         Expanded(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: lp.isEnglish ? CrossAxisAlignment.start : CrossAxisAlignment.end,
             children: [
               Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isCompleted ? Colors.black : Colors.grey)),
               Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
@@ -416,9 +352,10 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, {bool isTotal = false}) {
+  Widget _buildDetailRow(String label, String value, LanguageProvider lp, {bool isTotal = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      textDirection: lp.isEnglish ? TextDirection.ltr : TextDirection.rtl,
       children: [
         Text(label, style: const TextStyle(color: Colors.grey)),
         Text(value, style: TextStyle(fontWeight: isTotal ? FontWeight.bold : FontWeight.normal, fontSize: isTotal ? 18 : 14, color: isTotal ? const Color(0xFFEB1B33) : Colors.black)),
@@ -426,8 +363,6 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     );
   }
 }
-
-// --- Animation Helper (Keep as is) ---
 class AnimatedDots extends StatefulWidget {
   const AnimatedDots({super.key});
 
@@ -441,7 +376,11 @@ class _AnimatedDotsState extends State<AnimatedDots> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat();
+    // Animates the dots every 1 second
+    _controller = AnimationController(
+      vsync: this, 
+      duration: const Duration(milliseconds: 1000)
+    )..repeat();
   }
 
   @override
@@ -454,12 +393,28 @@ class _AnimatedDotsState extends State<AnimatedDots> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _controller,
-      builder: (context, _) => Row(
-        children: List.generate(3, (i) => Opacity(
-          opacity: (_controller.value * 3).floor() == i ? 1.0 : 0.2,
-          child: const Padding(padding: EdgeInsets.all(2), child: Text("•", style: TextStyle(color: Color(0xFFEB1B33), fontSize: 24))),
-        )),
-      ),
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            // This logic makes the dots blink one after the other
+            return Opacity(
+              opacity: (_controller.value * 3).floor() == i ? 1.0 : 0.2,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  "•",
+                  style: TextStyle(
+                    color: Color(0xFFEB1B33),
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }

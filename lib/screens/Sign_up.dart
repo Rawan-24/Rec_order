@@ -2,8 +2,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-//Done
-// password field deleted and sign up page navigate to the login
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
 
@@ -15,11 +17,28 @@ class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
- bool isLoading = false;
+  final FlutterTts tts = FlutterTts();
+  bool isLoading = false;
 
- 
- void _signUp() async {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      speakInstructions();
+    });
+  }
+
+  Future speakInstructions() async {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+    await tts.speak(lp.getText('signup_voice_instructions'));
+  }
+
+  void _signUp() async {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+
     if (!_formKey.currentState!.validate()) {
+      tts.speak(lp.getText('error_invalid_signup_tts'));
       return;
     }
 
@@ -31,66 +50,65 @@ class _SignUpPageState extends State<SignUpPage> {
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         verificationCompleted: (PhoneAuthCredential credential) async {
-          // 1. Sign in the user
-  UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-  String? uid = userCredential.user?.uid;
-  if (uid != null) {
-    // 2. Save to Cloud Firestore (The Database)
-    await DatabaseService().createUserProfile(
-      userCredential.user!.uid, 
-  _usernameController.text.trim(), 
-  phone
-    );
-
-    // 3. Save to Local Prefs
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('username', _usernameController.text);
-     await prefs.setString('phone', _phoneController.text);
+          UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+          String? uid = userCredential.user?.uid;
           
-    await prefs.setBool('staySignedIn', true);
+          if (uid != null) {
+            await DatabaseService().createUserProfile(
+                uid, 
+                _usernameController.text.trim(), 
+                phone
+            );
 
-    if (mounted) Navigator.pushReplacementNamed(context, '/home');
-  }
-        
-         
-        
-         
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('username', _usernameController.text.trim());
+            await prefs.setString('phone', phone);
+            await prefs.setBool('staySignedIn', true);
+
+            if (mounted) Navigator.pushReplacementNamed(context, '/home');
+          }
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() { isLoading = false; });
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Verification failed')));
+          String errorMsg = e.message ?? lp.getText('error_verification_failed');
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
+          tts.speak(lp.getText('error_verification_failed'));
         },
         codeSent: (String verificationId, int? resendToken) async {
           setState(() { isLoading = false; });
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('username', _usernameController.text);
+          await prefs.setString('username', _usernameController.text.trim());
           await prefs.setString('phone', phone);
           
-         if (mounted) {
-    Navigator.pushReplacementNamed(
-      context, 
-      '/verfiy', 
-      arguments: {
-        'verificationId': verificationId,
-        'username': _usernameController.text.trim(),
-        'phone': phone,
-      }, 
-    );
-  }
+          if (mounted) {
+            Navigator.pushReplacementNamed(
+              context, 
+              '/verfiy', 
+              arguments: {
+                'verificationId': verificationId,
+                'username': _usernameController.text.trim(),
+                'phone': phone,
+                'isSigningIn': false, // Explicitly tell verify screen this is sign up
+              }, 
+            );
+          }
         },
-        codeAutoRetrievalTimeout: (String verificationId) {},
+        codeAutoRetrievalTimeout: (String verificationId) {
+          if (mounted) setState(() { isLoading = false; });
+        },
       );
     } catch (e) {
-      setState(() { isLoading = false; });
+      if (mounted) setState(() { isLoading = false; });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xffF8F8F8),
-
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 25),
@@ -98,35 +116,41 @@ class _SignUpPageState extends State<SignUpPage> {
             key: _formKey,
             child: Column(
               children: [
-
                 const SizedBox(height: 40),
-
-                const Text(
-                  "Welcome to Rec-Order",
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
+                
+                // Mic Icon to match SignIn styling
+                Container(
+                  height: 110,
+                  width: 110,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    shape: BoxShape.circle,
                   ),
+                  child: const Icon(Icons.mic, color: Colors.red, size: 45),
+                ),
+
+                const SizedBox(height: 25),
+
+                Text(
+                  lp.getText('welcome_title'),
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                 ),
 
                 const SizedBox(height: 8),
 
-                const Text(
-                  "Create your account",
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
+                Text(
+                  lp.getText('signup_subtitle'),
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
 
                 const SizedBox(height: 40),
 
-                /// Full Name
-                const Align(
-                  alignment: Alignment.centerLeft,
+                /// Full Name Label
+                Align(
+                  alignment: lp.isEnglish ? Alignment.centerLeft : Alignment.centerRight,
                   child: Text(
-                    "Full Name",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    lp.getText('full_name_label'),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                   ),
                 ),
 
@@ -146,23 +170,16 @@ class _SignUpPageState extends State<SignUpPage> {
                   ),
                   child: TextFormField(
                     controller: _usernameController,
-                    decoration: const InputDecoration(
-                      hintText: "Enter your name",
-                      prefixIcon: Icon(Icons.person),
+                    textAlign: lp.isEnglish ? TextAlign.left : TextAlign.right,
+                    decoration: InputDecoration(
+                      hintText: lp.getText('full_name_hint'),
+                      prefixIcon: const Icon(Icons.person),
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(20),
+                      contentPadding: const EdgeInsets.all(20),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return "Enter username";
-                      }
-                      // Regex ensures ONLY letters and spaces
-                      if (!RegExp(r'^[a-zA-Z\s]+$').hasMatch(value)) {
-                        return "Name can only contain letters";
-                      }
-                      if (value.length < 3) {
-                        return "Name must be at least 3 characters";
-                      }
+                      if (value == null || value.isEmpty) return lp.getText('error_enter_username');
+                      if (value.length < 3) return lp.getText('error_name_short');
                       return null;
                     },
                   ),
@@ -170,12 +187,12 @@ class _SignUpPageState extends State<SignUpPage> {
 
                 const SizedBox(height: 25),
 
-                /// Phone Number
-                const Align(
-                  alignment: Alignment.centerLeft,
+                /// Phone Number Label
+                Align(
+                  alignment: lp.isEnglish ? Alignment.centerLeft : Alignment.centerRight,
                   child: Text(
-                    "Phone Number",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    lp.getText('phone_number_label'),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                   ),
                 ),
 
@@ -196,28 +213,24 @@ class _SignUpPageState extends State<SignUpPage> {
                   child: TextFormField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      hintText: "+1 (555) 000-0000",
-                      prefixIcon: Icon(Icons.phone),
+                    textAlign: lp.isEnglish ? TextAlign.left : TextAlign.right,
+                    decoration: InputDecoration(
+                      hintText: lp.isEnglish ? "+966XXXXXXXXX" : "XXXXXXXXX٩٦٦+",
+                      prefixIcon: const Icon(Icons.phone),
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(20),
+                      contentPadding: const EdgeInsets.all(20),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return "Enter phone number";
-                      }
+                      if (value == null || value.isEmpty) return lp.getText('error_enter_phone');
                       if (!RegExp(r'^\+[1-9]\d{1,14}$').hasMatch(value.replaceAll(RegExp(r'\s|\(|\)|-'), ''))) {
-                        return "Format: +15551234567";
+                        return lp.getText('error_valid_phone_format');
                       }
                       return null;
                     },
                   ),
                 ),
 
-               
-
-         
-                const SizedBox(height: 30),
+                const SizedBox(height: 40),
 
                 /// Sign Up button
                 SizedBox(
@@ -228,22 +241,14 @@ class _SignUpPageState extends State<SignUpPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
                     child: isLoading 
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          "Sign Up",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                      : Text(
+                          lp.getText('signup_button'),
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
-                  
-                    
                   ),
                 ),
 
@@ -253,30 +258,22 @@ class _SignUpPageState extends State<SignUpPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-
-                    const Text("Already have an account? "),
-
+                    Text(lp.getText('already_have_account')),
                     GestureDetector(
-                      onTap: () {
-                        Navigator.pushReplacementNamed(context, '/signin');
-                      },
-                      child: const Text(
-                        "Sign In",
-                        style: TextStyle(
-                          color: Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      onTap: () => Navigator.pushReplacementNamed(context, '/signin'),
+                      child: Text(
+                        lp.getText('signin_link'),
+                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 20),
-
               ],
             ),
           ),
         ),
       ),
     );
-  }}
+  }
+}

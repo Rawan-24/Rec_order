@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/Models/MenuItemModel.dart';
 import 'package:grad_project/Models/Restaurant.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/screens/MenuItem.dart';
+import 'package:provider/provider.dart';
 //Done
 class Menu extends StatefulWidget {
 
@@ -20,6 +22,14 @@ class Menu extends StatefulWidget {
 }
 
 class _MenuState extends State<Menu> {
+   late LanguageProvider lp; // Declare it here
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   // 1. Full Data Source
 final DatabaseService _dbService = DatabaseService(); // Add this
   final List<String> categories = ["All", "Pizza", "Pasta", "Salads", "Drinks"];
@@ -136,7 +146,7 @@ void _loadMenu() async {
                 _filterMenu();
               },
               decoration: InputDecoration(
-                hintText: "Search menu items",
+                hintText: lp.getText('search_menu'),
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: Colors.white,
@@ -182,7 +192,7 @@ void _loadMenu() async {
          isLoading 
   ? const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33)))
   : displayedMenu.isEmpty 
-    ? const Center(child: Text("No items found"))
+    ?  Center(child: Text(lp.getText('no_items_found')))
     : ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -222,7 +232,7 @@ void _loadMenu() async {
                               children: [
                                 Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                 const SizedBox(height: 4),
-                                Text(item.category, overflow: TextOverflow.ellipsis, maxLines: 1),
+                                Text(lp.getText('cat_${item.category.toLowerCase()}'), overflow: TextOverflow.ellipsis, maxLines: 1),
                                 const SizedBox(height: 4),
                                 Text("\$${item.price}", style: const TextStyle(color: Color(0xFFEB1B33), fontWeight: FontWeight.bold)),
                               ],
@@ -253,13 +263,13 @@ void _loadMenu() async {
           color: const Color(0xFFD6E0E0),
           borderRadius: BorderRadius.circular(30),
         ),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(Icons.mic, color: Colors.teal),
-            SizedBox(width: 10),
+            const Icon(Icons.mic, color: Colors.teal),
+            const SizedBox(width: 10),
             Expanded(
-              child: Text('Say "Add Margherita pizza" or tap an item',
-                  style: TextStyle(color: Colors.black54, fontSize: 14)),
+              child: Text(lp.getText('voice_hint_menu'),
+                  style: const TextStyle(color: Colors.black54, fontSize: 14)),
             ),
           ],
         ),

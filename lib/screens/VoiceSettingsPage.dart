@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue, FirebaseF
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class VoiceSettingsPage extends StatefulWidget {
   const VoiceSettingsPage({super.key});
@@ -11,7 +14,8 @@ class VoiceSettingsPage extends StatefulWidget {
 }
 
 class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
-  // State variables
+  final FlutterTts tts = FlutterTts();
+  
   bool _voiceCommands = true;
   bool _voiceFeedback = true;
   bool _wakeWord = true;
@@ -31,17 +35,16 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
 
   @override
   void dispose() {
-    _saveToCloud(); // Final sync when leaving
+    _saveToCloud(); 
     super.dispose();
   }
 
   Future<void> _loadSettingsFromServer() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // Using the helper from DatabaseService
       Map<String, dynamic>? settings = await DatabaseService().getUserVoiceSettings(user.uid);
       
-      if (settings != null) {
+      if (settings != null && mounted) {
         setState(() {
           _selectedSpeed = settings['speed'] ?? "1.0x Normal";
           _volume = (settings['volume'] ?? 80.0).toDouble();
@@ -52,8 +55,34 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           _autoListen = settings['autoListen'] ?? false;
           _voiceConfirmation = settings['voiceConfirmation'] ?? true;
         });
+        
+        // Ensure the Global Provider matches the server on load
+        final lp = Provider.of<LanguageProvider>(context, listen: false);
+        String code = _selectedLanguage.contains("Arabic") ? 'ar' : 'en';
+        if (lp.currentLanguage != code) {
+          lp.changeLanguage(code);
+        }
       }
     }
+  }
+
+  Future<void> _handleLanguageChange(String selectedDisplayName) async {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+
+    setState(() {
+      _selectedLanguage = selectedDisplayName;
+    });
+
+    String code = selectedDisplayName.contains("Arabic") ? 'ar' : 'en';
+    await lp.changeLanguage(code); // Uses the changeLanguage method from your provider
+
+    if (code == 'ar') {
+      await tts.setLanguage("ar-SA");
+    } else {
+      await tts.setLanguage("en-US");
+    }
+
+    await _saveToCloud();
   }
 
   Future<void> _saveToCloud() async {
@@ -75,7 +104,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to sync settings"))
+          const SnackBar(content: Text("Failed to sync settings")),
         );
       }
     }
@@ -83,48 +112,50 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: SingleChildScrollView(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(lp),
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildVoiceHint(),
+                  _buildVoiceHint(lp),
                   const SizedBox(height: 20),
-                  _buildMainVoiceToggle(),
+                  _buildMainVoiceToggle(lp),
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.settings_voice, 'Voice Features'),
+                  _buildSectionHeader(Icons.settings_voice, lp.getText('voice_features_header')),
                   _buildSettingsGroup([
-                    _buildToggleTile("Voice Feedback", "Hear confirmations for actions", _voiceFeedback, (v) {
+                    _buildToggleTile(lp.getText('voice_feedback_title'), lp.getText('voice_feedback_sub'), _voiceFeedback, (v) {
                       setState(() => _voiceFeedback = v);
                       _saveToCloud();
                     }, Icons.volume_up_outlined),
-                    _buildToggleTile("Wake Word Detection", "Say \"Hey Say-Serve\" to activate", _wakeWord, (v) {
+                    _buildToggleTile(lp.getText('wake_word_title'), lp.getText('wake_word_sub'), _wakeWord, (v) {
                       setState(() => _wakeWord = v);
                       _saveToCloud();
                     }, Icons.bolt),
-                    _buildToggleTile("Auto-Listen", "Always ready for commands", _autoListen, (v) {
+                    _buildToggleTile(lp.getText('auto_listen_title'), lp.getText('auto_listen_sub'), _autoListen, (v) {
                       setState(() => _autoListen = v);
                       _saveToCloud();
                     }, Icons.mic_none),
-                    _buildToggleTile("Voice Confirmations", "Confirm orders before placing", _voiceConfirmation, (v) {
+                    _buildToggleTile(lp.getText('voice_conf_title'), lp.getText('voice_conf_sub'), _voiceConfirmation, (v) {
                       setState(() => _voiceConfirmation = v);
                       _saveToCloud();
                     }, Icons.info_outline),
                   ]),
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.speed, 'Speech Speed'),
+                  _buildSectionHeader(Icons.speed, lp.getText('speech_speed_header')),
                   _buildSpeedSelector(),
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.volume_up, 'Voice Volume'),
-                  _buildVolumeSlider(),
+                  _buildSectionHeader(Icons.volume_up, lp.getText('voice_volume_header')),
+                  _buildVolumeSlider(lp),
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.translate, 'Voice Language'),
+                  _buildSectionHeader(Icons.translate, lp.getText('voice_lang_header')),
                   _buildLanguageSelector(),
                   const SizedBox(height: 40),
                 ],
@@ -136,7 +167,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(LanguageProvider lp) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.only(top: 60, bottom: 30),
@@ -153,7 +184,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
-              const Text('Voice Settings', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+              Text(lp.getText('voice_settings_title'), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
               IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: _loadSettingsFromServer),
             ],
           ),
@@ -168,21 +199,21 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildVoiceHint() {
+  Widget _buildVoiceHint(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(15)),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.mic_none, color: Color(0xFFD32F2F), size: 20),
-          SizedBox(width: 12),
-          Expanded(child: Text('Try: "Enable voice feedback", "Set speed to fast"', style: TextStyle(color: Colors.black54, fontSize: 13))),
+          const Icon(Icons.mic_none, color: Color(0xFFD32F2F), size: 20),
+          const SizedBox(width: 12),
+          Expanded(child: Text(lp.getText('voice_hint_text'), style: const TextStyle(color: Colors.black54, fontSize: 13))),
         ],
       ),
     );
   }
 
-  Widget _buildMainVoiceToggle() {
+  Widget _buildMainVoiceToggle(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
@@ -190,10 +221,10 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         children: [
           CircleAvatar(backgroundColor: Colors.red[50], child: Icon(Icons.mic, color: primaryRed)),
           const SizedBox(width: 15),
-          const Expanded(
+          Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Voice Commands', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-              Text('Active and listening', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              Text(lp.getText('voice_commands_main'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+              Text(lp.getText('voice_status_active'), style: const TextStyle(color: Colors.grey, fontSize: 14)),
             ]),
           ),
           Switch(value: _voiceCommands, activeThumbColor: primaryRed, onChanged: (v) {
@@ -248,7 +279,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildVolumeSlider() {
+  Widget _buildVolumeSlider(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
@@ -261,9 +292,9 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
             onChangeEnd: (v) => _saveToCloud(),
           ),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text("Silent", style: TextStyle(color: Colors.grey)),
+            Text(lp.getText('vol_silent'), style: const TextStyle(color: Colors.grey)),
             Text("${_volume.round()}%", style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
-            const Text("Loud", style: TextStyle(color: Colors.grey)),
+            Text(lp.getText('vol_loud'), style: const TextStyle(color: Colors.grey)),
           ])
         ],
       ),
@@ -273,13 +304,20 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   Widget _buildLanguageSelector() {
     List<String> langs = ["English (US)", "Arabic (EG)"];
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+      decoration: BoxDecoration(
+        color: Colors.white, 
+        borderRadius: BorderRadius.circular(15)
+      ),
       child: Column(
         children: langs.map((l) => RadioListTile(
-          title: Text(l), value: l, groupValue: _selectedLanguage, activeColor: primaryRed,
+          title: Text(l), 
+          value: l, 
+          groupValue: _selectedLanguage, 
+          activeColor: primaryRed,
           onChanged: (v) {
-            setState(() => _selectedLanguage = v.toString());
-            _saveToCloud();
+            if (v != null) {
+              _handleLanguageChange(v.toString());
+            }
           },
         )).toList(),
       ),

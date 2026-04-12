@@ -3,7 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-//Done
+import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -12,111 +14,101 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-final _formKey = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
   final TextEditingController phoneController = TextEditingController();
-  bool isLoading = false; 
+  bool isLoading = false;
   final FlutterTts tts = FlutterTts();
   bool staySignedIn = false;
- 
+
   @override
   void initState() {
     super.initState();
-    speakInstructions();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      speakInstructions();
+    });
   }
 
   Future speakInstructions() async {
-    await tts.setLanguage("en-US");
-    await tts.speak(
-        "Sign in page. Please enter your phone number . If you don't have an account, say sign up.");
+    // Access provider safely with listen: false inside a function
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    
+    // This line uses the 'isEnglish' getter we added to the provider
+    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+    await tts.speak(lp.getText('signin_voice_instructions'));
   }
 
-  void signIn() async{
-    
-   
+  void signIn() async {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
 
-    /////////new code for authentacation
-  
     if (!_formKey.currentState!.validate()) {
-      tts.speak("Please enter a valid phone number");
+      tts.speak(lp.getText('error_invalid_phone_tts'));
       return;
     }
 
-
-
-    setState(() {
-      isLoading = true;
-    });
+    setState(() { isLoading = true; });
 
     String phone = phoneController.text.trim();
 
- if (phone.isEmpty) {
-    tts.speak("Please enter your phone number");
-    return;
-  } 
     try {
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         verificationCompleted: (PhoneAuthCredential credential) async {
-          // Android only: Auto sign-in if it detects the SMS automatically
           UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-  String uid = userCredential.user!.uid;
+          String uid = userCredential.user!.uid;
 
-  // FETCH DATA FROM DATABASE
-  final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-  
-  final prefs = await SharedPreferences.getInstance();
-  if (userDoc.exists) {
-    // Save their real username from the database to SharedPreferences
-    await prefs.setString('username', userDoc.data()?['username'] ?? "User");
-  }
-  
-  await prefs.setBool("staySignedIn", staySignedIn);
-  if (mounted) Navigator.pushReplacementNamed(context, '/home');
+          final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+          final prefs = await SharedPreferences.getInstance();
+          
+          if (userDoc.exists) {
+            await prefs.setString('username', userDoc.data()?['username'] ?? "User");
+          }
 
-         
+          await prefs.setBool("staySignedIn", staySignedIn);
+          if (mounted) Navigator.pushReplacementNamed(context, '/home');
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() { isLoading = false; });
-          String errorMsg = e.code == 'invalid-phone-number' 
-              ? 'The provided phone number is not valid.' 
-              : e.message ?? 'Verification failed';
+          String errorMsg = e.code == 'invalid-phone-number'
+              ? lp.getText('error_invalid_phone_msg')
+              : e.message ?? lp.getText('error_verification_failed');
+          
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
-          tts.speak("Verification failed");
+          tts.speak(lp.getText('error_verification_failed'));
         },
         codeSent: (String verificationId, int? resendToken) async {
           setState(() { isLoading = false; });
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool("staySignedIn", staySignedIn);
-          
-          // Navigate to verify page and PASS the verificationId
+
           if (mounted) {
             Navigator.pushReplacementNamed(
-              context, 
-              '/verfiy', 
-             arguments: {
-        'verificationId': verificationId,
-        'phone': phone,
-        'isSigningIn': true, // Tell the next screen this is a Sign In, not Sign Up
-      },
+              context,
+              '/verfiy',
+              arguments: {
+                'verificationId': verificationId,
+                'phone': phone,
+                'isSigningIn': true,
+              },
             );
           }
         },
         codeAutoRetrievalTimeout: (String verificationId) {
-          setState(() { isLoading = false; });
+          if (mounted) setState(() { isLoading = false; });
         },
       );
     } catch (e) {
-      setState(() { isLoading = false; });
+      if (mounted) setState(() { isLoading = false; });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
+    // This is where the 'lp' variable is defined for the UI
+    final lp = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xffF8F8F8),
-
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 25),
@@ -124,10 +116,7 @@ final _formKey = GlobalKey<FormState>();
             key: _formKey,
             child: Column(
               children: [
-            
                 const SizedBox(height: 40),
-            
-                /// microphone circle
                 Container(
                   height: 110,
                   width: 110,
@@ -135,51 +124,27 @@ final _formKey = GlobalKey<FormState>();
                     color: Colors.red.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.mic,
-                    color: Colors.red,
-                    size: 45,
-                  ),
+                  child: const Icon(Icons.mic, color: Colors.red, size: 45),
                 ),
-            
                 const SizedBox(height: 25),
-            
-                const Text(
-                  "Welcome to Rec-Order",
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Text(
+                  lp.getText('welcome_title'),
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                 ),
-            
                 const SizedBox(height: 8),
-            
-                const Text(
-                  "Sign in to continue",
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
+                Text(
+                  lp.getText('signin_subtitle'),
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
-            
                 const SizedBox(height: 40),
-            
-                /// Phone label
-                const Align(
-                  alignment: Alignment.centerLeft,
+                Align(
+                  alignment: lp.isEnglish ? Alignment.centerLeft : Alignment.centerRight,
                   child: Text(
-                    "Phone Number",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    lp.getText('phone_number_label'),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                   ),
                 ),
-            
                 const SizedBox(height: 8),
-            
-                /// Phone field
-               /// Phone field
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -192,99 +157,75 @@ final _formKey = GlobalKey<FormState>();
                       )
                     ],
                   ),
-                  child: TextFormField( // Change TextField to TextFormField
+                  child: TextFormField(
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      hintText: "+15550000000", // Firebase expects no spaces/brackets
-                      prefixIcon: Icon(Icons.phone),
+                    textAlign: lp.isEnglish ? TextAlign.left : TextAlign.right,
+                    decoration: InputDecoration(
+                      hintText: lp.isEnglish ? "+966XXXXXXXXX" : "XXXXXXXXX٩٦٦+",
+                      prefixIcon: const Icon(Icons.phone),
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(20),
+                      contentPadding: const EdgeInsets.all(20),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return "Enter phone number";
+                        return lp.getText('error_enter_phone');
                       }
-                      // Regex checks for a '+' followed by 10 to 14 digits
                       if (!RegExp(r'^\+[1-9]\d{1,14}$').hasMatch(value.replaceAll(RegExp(r'\s|\(|\)|-'), ''))) {
-                        return "Enter a valid number with country code (e.g., +15551234567)";
+                        return lp.getText('error_valid_phone_format');
                       }
                       return null;
                     },
                   ),
                 ),
                 const SizedBox(height: 25),
-            
-                /// stay signed in
                 CheckboxListTile(
-                  title: const Text("Stay signed in"),
+                  title: Text(lp.getText('stay_signed_in')),
                   value: staySignedIn,
                   activeColor: Colors.red,
                   onChanged: (bool? value) {
-                    setState(() {
-                      staySignedIn = value!;
-                    });
+                    setState(() { staySignedIn = value!; });
                   },
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
-            
                 const SizedBox(height: 20),
-            
-                /// sign in button
-/// sign in button
                 SizedBox(
                   width: double.infinity,
                   height: 60,
                   child: ElevatedButton(
-                    onPressed: isLoading ? null : signIn, // Disable when loading
+                    onPressed: isLoading ? null : signIn,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
-                    child: isLoading 
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          "Sign In",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                    child: isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : Text(
+                            lp.getText('signin_button'),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
-                        ),
                   ),
                 ),
                 const SizedBox(height: 25),
-            
-                /// sign up
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-            
-                    const Text("Don't have an account? "),
-            
+                    Text(lp.getText('no_account_text')),
                     GestureDetector(
-                      onTap: () {
-                        Navigator.pushNamed(context, "/SignUp");
-                      },
-                      child: const Text(
-                        "Sign Up",
-                        style: TextStyle(
-                          color: Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      onTap: () => Navigator.pushNamed(context, "/SignUp"),
+                      child: Text(
+                        lp.getText('signup_link'),
+                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                       ),
                     )
                   ],
                 ),
-            
                 const SizedBox(height: 20),
-            
               ],
             ),
           ),
         ),
       ),
     );
-  }}
+  }
+}

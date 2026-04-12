@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:provider/provider.dart';
 
 class NoInternetScreen extends StatelessWidget {
   const NoInternetScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
@@ -13,17 +16,17 @@ class NoInternetScreen extends StatelessWidget {
           children: [
             const Icon(Icons.wifi_off_rounded, size: 80, color: Colors.red),
             const SizedBox(height: 20),
-            const Text(
-              "Whoops!",
+             Text(
+              lp.getText('no_internet_title'),
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
-            const Text("Check your internet connection."),
+             Text(lp.getText('no_internet_msg')),
             const SizedBox(height: 30),
             ElevatedButton(
               onPressed: () {
                 // You could trigger a manual re-check here
               },
-              child: const Text("Try Again"),
+              child: Text(lp.getText('try_again')),
             )
           ],
         ),

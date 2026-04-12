@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/Models/AddressModel.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:provider/provider.dart';
 //Done
 class DeliveryAddressesPage extends StatefulWidget {
   const DeliveryAddressesPage({super.key});
@@ -11,8 +13,14 @@ class DeliveryAddressesPage extends StatefulWidget {
 }
 
 class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
- 
+ late LanguageProvider lp; // Declare it here
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   @override
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -21,7 +29,7 @@ class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Delivery Addresses", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(lp.getText('address'), style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: primaryRed,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -35,12 +43,12 @@ class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
     body: StreamBuilder<List<AddressModel>>(
       stream: DatabaseService().getAddresses(userId!),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return const Center(child: Text("Something went wrong"));
+        if (snapshot.hasError) return Center(child: Text(lp.getText('error_something_wrong')));
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
         final addresses = snapshot.data ?? [];
 
-        if (addresses.isEmpty) return const Center(child: Text("No addresses saved yet."));
+        if (addresses.isEmpty) return Center(child: Text(lp.getText('no_addresses')));
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
@@ -95,9 +103,9 @@ class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
                                 color: accent,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
-                                "DEFAULT",
-                                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                              child: Text(
+                              lp.getText('default_tag'),
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                               ),
                             ),
                         ],
@@ -122,13 +130,13 @@ class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
     _showAddAddressDialog(context, existingAddress: item); 
   },
   icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
-  label: const Text("Edit", style: TextStyle(color: Colors.blueGrey)),
+  label: Text(lp.getText('edit'), style: const TextStyle(color: Colors.blueGrey)),
 ),
                 const SizedBox(width: 10),
                 TextButton.icon(
               onPressed: () => DatabaseService().deleteAddress(userId, item.id),
               icon: const Icon(Icons.delete_outline, color: Colors.red),
-              label: const Text("Delete", style: TextStyle(color: Colors.red)),
+              label: Text(lp.getText('delete'), style: const TextStyle(color: Colors.red)),
             ),
               ],
             )
@@ -149,38 +157,64 @@ bool isEditing = existingAddress != null;
     builder: (context) => StatefulBuilder(
       builder: (context, setDialogState) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(isEditing ? "Edit Address" : "Add New Address"),
+        title: Text(isEditing ?lp.getText('edit_address') : lp.getText('add_new_address')),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDialogField("Label", "e.g. Home, Work, Gym", labelController),
+              _buildDialogField(lp.getText('label'), lp.getText('label_hint'), labelController),
               const SizedBox(height: 15),
-              _buildDialogField("Address", "Street, City, Province", addressController, maxLines: 2),
+              _buildDialogField(lp.getText('address_field'), lp.getText('address_hint'), addressController, maxLines: 2),
               const SizedBox(height: 20),
-              const Text("Select Icon", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              Text(lp.getText('select_icon'), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
               const SizedBox(height: 10),
               
               // Icon Selection Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _iconPicker(Icons.home_outlined, 'home', selectedIconType, (type) {
-                    setDialogState(() => selectedIconType = type);
-                  }),
-                  _iconPicker(Icons.work_outline, 'work', selectedIconType, (type) {
-                    setDialogState(() => selectedIconType = type);
-                  }),
-                  _iconPicker(Icons.location_on_outlined, 'other', selectedIconType, (type) {
-                    setDialogState(() => selectedIconType = type);
-                  }),
-                ],
-              ),
+            Row(
+  mainAxisAlignment: MainAxisAlignment.spaceAround,
+  children: [
+    // Home Icon
+    Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _iconPicker(Icons.home_outlined, 'home', selectedIconType, (type) {
+          setDialogState(() => selectedIconType = type);
+        }),
+        const SizedBox(height: 4),
+        Text(lp.getText('home_label'), style: TextStyle(fontSize: 12, color: selectedIconType == 'home' ? const Color(0xFFD32F2F) : Colors.grey)),
+      ],
+    ),
+
+    // Work Icon
+    Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _iconPicker(Icons.work_outline, 'work', selectedIconType, (type) {
+          setDialogState(() => selectedIconType = type);
+        }),
+        const SizedBox(height: 4),
+        Text(lp.getText('work_label'), style: TextStyle(fontSize: 12, color: selectedIconType == 'work' ? const Color(0xFFD32F2F) : Colors.grey)),
+      ],
+    ),
+
+    // Other Icon
+    Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _iconPicker(Icons.location_on_outlined, 'other', selectedIconType, (type) {
+          setDialogState(() => selectedIconType = type);
+        }),
+        const SizedBox(height: 4),
+        Text(lp.getText('other_label'), style: TextStyle(fontSize: 12, color: selectedIconType == 'other' ? const Color(0xFFD32F2F) : Colors.grey)),
+      ],
+    ),
+  ],
+)
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(lp.getText('cancel'))),
       ElevatedButton(
   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD32F2F)),
   onPressed: () async {
@@ -209,17 +243,17 @@ bool isEditing = existingAddress != null;
       
       // Optional: Show a success message
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEditing ? "Address updated!" : "Address saved!"))
+        SnackBar(content: Text(isEditing ? lp.getText('update_address') : lp.getText('save_address'),))
       );
     } else {
       // Show error if fields are empty
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill in all fields"))
+        SnackBar(content: Text(lp.getText('error_fill_fields')))
       );
     }
   },
   child: Text(
-    isEditing ? "Update Address" : "Save Address", 
+    isEditing ? lp.getText('update_address') : lp.getText('save_address'), 
     style: const TextStyle(color: Colors.white),
   ),
 ),

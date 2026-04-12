@@ -14,6 +14,7 @@ import 'package:grad_project/screens/CartScreen.dart';
 import 'package:grad_project/screens/PaymentScreen.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
+import 'package:grad_project/providers/LanguageProvider.dart'; 
 import 'package:provider/provider.dart';
 import 'connectivity_wrapper.dart';
 
@@ -25,8 +26,11 @@ Future<void> main() async {
   );
 
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => CartProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CartProvider()),
+        ChangeNotifierProvider(create: (_) => LanguageProvider()),
+      ],
       child: const MyApp(),
     ),
   );
@@ -37,32 +41,43 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primaryColor: const Color(0xFF4169E1),
-        fontFamily: 'Poppins',
-      ),
-      // --- THE FIX IS HERE ---
-      // The builder wraps every route/screen with the ConnectivityWrapper
-      builder: (context, child) {
-        return ConnectivityWrapper(child: child!);
-      },
-      // -----------------------
-      initialRoute: '/',
-      routes: {
-        '/': (context) => const RecOrderSplashScreen(),
-        '/language': (context) => const LanguageSelectionScreen(),
-        "/signin": (context) => const SignInScreen(),
-        "/SignUp": (context) => const SignUpPage(),
-        '/home': (context) => const HomePage(),
-        '/CartScreen': (context) => const CartScreen(),
-        '/RestaurantsScreen': (context) => const RestaurantsScreen(),
-        '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: ''),
-        '/PaymentScreen': (context) => PaymentScreen(),
-        '/tutorial1': (context) => const VoiceOnboardingScreen(),
-        '/verfiy': (context) => const VerificationScreen(),
-        'profile': (context) => const ProfilePage(),
+    // We use Consumer here so the app rebuilds and flips direction 
+    // immediately when the language changes.
+    return Consumer<LanguageProvider>(
+      builder: (context, langProvider, child) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            primaryColor: const Color(0xFF4169E1),
+            fontFamily: 'Poppins',
+          ),
+          
+          // Combining ConnectivityWrapper and RTL Directionality
+          builder: (context, child) {
+            return Directionality(
+              textDirection: langProvider.isRTL 
+                  ? TextDirection.rtl 
+                  : TextDirection.ltr,
+              child: ConnectivityWrapper(child: child!),
+            );
+          },
+
+          initialRoute: '/',
+          routes: {
+            '/': (context) => const RecOrderSplashScreen(),
+            '/language': (context) => const LanguageSelectionScreen(),
+            "/signin": (context) => const SignInScreen(),
+            "/SignUp": (context) => const SignUpPage(),
+            '/home': (context) => const HomePage(),
+            '/CartScreen': (context) => const CartScreen(),
+            '/RestaurantsScreen': (context) => const RestaurantsScreen(),
+            '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: ''),
+            '/PaymentScreen': (context) => const PaymentScreen(),
+            '/tutorial1': (context) => const VoiceOnboardingScreen(),
+            '/verfiy': (context) => const VerificationScreen(),
+            'profile': (context) => const ProfilePage(),
+          },
+        );
       },
     );
   }

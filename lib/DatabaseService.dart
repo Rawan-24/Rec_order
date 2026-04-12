@@ -16,6 +16,7 @@ Future<void> createUserProfile(String uid, String username, String phone) async 
         'uid': uid,
         'username': username,
         'phone': phone,
+        'language': 'en', // default
         'createdAt': FieldValue.serverTimestamp(),
         'favorites': [], // Initialize empty favorites list for new users
       });

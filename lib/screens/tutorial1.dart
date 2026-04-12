@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-
+import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'Sign_in.dart';
-//Done
 
 class VoiceOnboardingScreen extends StatefulWidget {
   const VoiceOnboardingScreen({super.key});
@@ -14,7 +14,6 @@ class VoiceOnboardingScreen extends StatefulWidget {
 class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final PageController _controller = PageController();
   int currentPage = 0;
-
   late stt.SpeechToText _speech;
   bool isListening = false;
 
@@ -24,22 +23,22 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     _speech = stt.SpeechToText();
   }
 
-  // 🎤 Start listening
-  void startListening() async {
+  void startListening(LanguageProvider lp) async {
     bool available = await _speech.initialize();
-
     if (available) {
       setState(() => isListening = true);
-
-      _speech.listen(onResult: (result) {
-        String text = result.recognizedWords.toLowerCase();
-
-        if (text.contains("next")) {
-          nextPage();
-        } else if (text.contains("skip")) {
-          skip();
-        }
-      });
+      _speech.listen(
+        localeId: lp.isEnglish ? "en-US" : "ar-SA",
+        onResult: (result) {
+          String text = result.recognizedWords.toLowerCase();
+          // Logic for both English and Arabic voice commands
+          if (text.contains("next") || text.contains("التالي")) {
+            nextPage();
+          } else if (text.contains("skip") || text.contains("تخطي")) {
+            skip();
+          }
+        },
+      );
     }
   }
 
@@ -62,90 +61,69 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   void skip() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => const SignInScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const SignInScreen()),
     );
   }
 
-
-
-
-  Widget buildPage(String title, String subtitle) {
-    const primaryRed = Color(0xFFEB1B33);
-
+  Widget buildPage(String title, String subtitle, LanguageProvider lp) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         GestureDetector(
-          onLongPress: startListening,
+          onLongPress: () => startListening(lp),
           onLongPressUp: stopListening,
-          child: Container(
-            width: 140,
-            height: 140,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [Color(0xFFEB1B33), Color(0xFFB71C1C)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: primaryRed.withOpacity(0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Animated Pulse Effect when listening
+              if (isListening)
+                const _PulseAnimation(),
+              Container(
+                width: 140,
+                height: 140,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFEB1B33), Color(0xFFB71C1C)],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFEB1B33).withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Icon(
-              Icons.mic,
-              color: Colors.white,
-              size: 50,
-            ),
+                child: const Icon(Icons.mic, color: Colors.white, size: 50),
+              ),
+            ],
           ),
         ),
-
         const SizedBox(height: 30),
-
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
         ),
-
         const SizedBox(height: 12),
-
-        Text(
-          subtitle,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.black54),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.black54, fontSize: 15),
+          ),
         ),
       ],
     );
   }
 
-  Widget buildDots() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(3, (index) {
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: currentPage == index ? 20 : 6,
-          height: 6,
-          decoration: BoxDecoration(
-            color: currentPage == index
-                ? const Color(0xFFEB1B33)
-                : Colors.grey.shade300,
-            borderRadius: BorderRadius.circular(10),
-          ),
-        );
-      }),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
     const primaryRed = Color(0xFFEB1B33);
 
     return Scaffold(
@@ -153,43 +131,38 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Skip
             Align(
-              alignment: Alignment.topRight,
+              alignment: lp.isEnglish ? Alignment.topRight : Alignment.topLeft,
               child: TextButton(
                 onPressed: skip,
-                child: const Text("Skip"),
+                child: Text(lp.getText('skip')),
               ),
             ),
-
             Expanded(
               child: PageView(
                 controller: _controller,
-                onPageChanged: (index) {
-                  setState(() => currentPage = index);
-                },
+                onPageChanged: (index) => setState(() => currentPage = index),
                 children: [
                   buildPage(
-                    "Tap & Hold to Speak",
-                    "Press and hold the microphone button,\nthen speak your order clearly",
+                    lp.getText('ob_title_1'), // "Tap & Hold to Speak"
+                    lp.getText('ob_sub_1'),   // "Press the mic and speak clearly"
+                    lp,
                   ),
                   buildPage(
-                    "Listen to Confirmations",
-                    "The app will read back your selections for verification",
+                    lp.getText('ob_title_2'), // "Listen to Confirmations"
+                    lp.getText('ob_sub_2'),   // "App will read back selections"
+                    lp,
                   ),
                   buildPage(
-                    " Say Commands Anytime",
-                    "Try:Ord er pizza, Show my cart, Track order"
+                    lp.getText('ob_title_3'), // "Say Commands Anytime"
+                    lp.getText('ob_sub_3'),   // "Try: Order pizza..."
+                    lp,
                   ),
                 ],
               ),
             ),
-
-            buildDots(),
-
+            _buildDots(),
             const SizedBox(height: 20),
-
-            // Next Button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: SizedBox(
@@ -198,33 +171,28 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryRed,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                   onPressed: nextPage,
                   child: Text(
-                    currentPage == 2 ? "Start" : "Next >",
-                    style: const TextStyle(fontSize: 16),
+                    currentPage == 2 ? lp.getText('start_btn') : lp.getText('next_btn'),
+                    style: const TextStyle(fontSize: 16, color: Colors.white),
                   ),
                 ),
               ),
             ),
-
             const SizedBox(height: 15),
-
-            const Row(
+            Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.mic, size: 16, color: Colors.black45),
-                SizedBox(width: 6),
+                const Icon(Icons.mic, size: 16, color: Colors.black45),
+                const SizedBox(width: 6),
                 Text(
-                  'Say "Next" or "Skip"',
-                  style: TextStyle(color: Colors.black45),
+                  lp.getText('voice_instruction_hint'), // 'Say "Next" or "Skip"'
+                  style: const TextStyle(color: Colors.black45),
                 ),
               ],
             ),
-
             const SizedBox(height: 20),
           ],
         ),
@@ -232,4 +200,57 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     );
   }
 
+  Widget _buildDots() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(3, (index) {
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: currentPage == index ? 20 : 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: currentPage == index ? const Color(0xFFEB1B33) : Colors.grey.shade300,
+            borderRadius: BorderRadius.circular(10),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+// Helper class for the pulse effect when listening
+class _PulseAnimation extends StatefulWidget {
+  const _PulseAnimation();
+  @override
+  State<_PulseAnimation> createState() => _PulseAnimationState();
+}
+
+class _PulseAnimationState extends State<_PulseAnimation> with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 1))..repeat(reverse: true);
+  }
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return Container(
+          width: 140 + (20 * _pulseController.value),
+          height: 140 + (20 * _pulseController.value),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFFEB1B33).withOpacity(0.2),
+          ),
+        );
+      },
+    );
+  }
 }

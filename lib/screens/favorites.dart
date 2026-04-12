@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/Models/FavoriteModel.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:provider/provider.dart';
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({super.key});
@@ -11,6 +13,14 @@ class FavoritesPage extends StatefulWidget {
 }
 
 class _FavoritesPageState extends State<FavoritesPage> {
+   late LanguageProvider lp; // Declare it here
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   @override
   Widget build(BuildContext context) {
     // Get current user safely
@@ -21,14 +31,14 @@ class _FavoritesPageState extends State<FavoritesPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Favorite Restaurants", 
-          style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(lp.getText('favorites resturant'), 
+          style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: primaryRed,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
       body: userId.isEmpty 
-        ? const Center(child: Text("Please log in to see favorites"))
+        ?  Center(child: Text(lp.getText('login_to_see_favs')))
         : StreamBuilder<List<FavoriteModel>>(
             stream: DatabaseService().getFavorites(userId),
             builder: (context, snapshot) {
@@ -37,7 +47,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               }
               
               if (snapshot.hasError) {
-                return Center(child: Text("Error: ${snapshot.error}"));
+                return Center(child: Text("${lp.getText('error')}: ${snapshot.error}"));
               }
 
               final favorites = snapshot.data ?? [];
@@ -161,10 +171,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
         children: [
           Icon(Icons.favorite_border, size: 80, color: Colors.grey[300]),
           const SizedBox(height: 20),
-          const Text("No favorites yet", 
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
+          Text(lp.getText('no_favorites'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
           const SizedBox(height: 10),
-          const Text("Start hearting restaurants to see them here!", 
+           Text(lp.getText('start_hearting'), 
             style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
           ElevatedButton(
@@ -173,7 +183,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               backgroundColor: accent,
               foregroundColor: Colors.white,
             ),
-            child: const Text("Explore Restaurants"),
+            child:  Text(lp.getText('explore_restaurants')),
           ),
         ],
       ),

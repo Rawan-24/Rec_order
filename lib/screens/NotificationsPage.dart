@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -32,6 +34,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: SingleChildScrollView(
@@ -56,11 +60,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         icon: const Icon(Icons.arrow_back, color: Colors.white),
                         onPressed: () => Navigator.pop(context),
                       ),
-                      const Expanded(
+                      Expanded(
                         child: Center(
                           child: Text(
-                            'Notifications',
-                            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                            lp.getText('notifications_title'),
+                            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -82,47 +86,43 @@ class _NotificationsPageState extends State<NotificationsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Voice Commands Hint
-                  _buildVoiceHint(),
+                  _buildVoiceHint(lp),
                   const SizedBox(height: 20),
-
-                  // All Notifications Card
-                  _buildMainToggleCard(),
+                  _buildMainToggleCard(lp),
                   const SizedBox(height: 25),
 
-                  // Grouped Settings
-                  _buildSectionHeader(Icons.assignment_outlined, 'Order Updates'),
+                  _buildSectionHeader(Icons.assignment_outlined, lp.getText('order_updates_sec')),
                   _buildSettingsGroup([
-                    _buildToggleTile('order_conf', 'Order Confirmation', 'When order is placed', Icons.error_outline),
-                    _buildToggleTile('order_prep', 'Order Preparing', 'Restaurant is preparing', Icons.local_mall_outlined),
-                    _buildToggleTile('out_delivery', 'Out for Delivery', 'Driver is on the way', Icons.delivery_dining_outlined),
-                    _buildToggleTile('delivered', 'Order Delivered', 'Order has arrived', Icons.notifications_none_outlined),
+                    _buildToggleTile('order_conf', lp.getText('order_conf_title'), lp.getText('order_conf_sub'), Icons.error_outline),
+                    _buildToggleTile('order_prep', lp.getText('order_prep_title'), lp.getText('order_prep_sub'), Icons.local_mall_outlined),
+                    _buildToggleTile('out_delivery', lp.getText('out_delivery_title'), lp.getText('out_delivery_sub'), Icons.delivery_dining_outlined),
+                    _buildToggleTile('delivered', lp.getText('delivered_title'), lp.getText('delivered_sub'), Icons.notifications_none_outlined),
                   ]),
 
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.card_giftcard_outlined, 'Promotions & Offers'),
+                  _buildSectionHeader(Icons.card_giftcard_outlined, lp.getText('promotions_sec')),
                   _buildSettingsGroup([
-                    _buildToggleTile('new_rest', 'New Restaurants', 'New places near you', Icons.storefront_outlined),
-                    _buildToggleTile('special_offers', 'Special Offers', 'Exclusive deals for you', Icons.card_giftcard),
-                    _buildToggleTile('discounts', 'Discounts & Coupons', 'Save money on orders', Icons.redeem_outlined),
+                    _buildToggleTile('new_rest', lp.getText('new_rest_title'), lp.getText('new_rest_sub'), Icons.storefront_outlined),
+                    _buildToggleTile('special_offers', lp.getText('special_offers_title'), lp.getText('special_offers_sub'), Icons.card_giftcard),
+                    _buildToggleTile('discounts', lp.getText('discounts_title'), lp.getText('discounts_sub'), Icons.redeem_outlined),
                   ]),
 
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.star_outline, 'Ratings & Reviews'),
+                  _buildSectionHeader(Icons.star_outline, lp.getText('ratings_sec')),
                   _buildSettingsGroup([
-                    _buildToggleTile('rate_order', 'Rate Your Order', 'Reminder to rate food', Icons.star_border),
-                    _buildToggleTile('driver_ratings', 'Driver Ratings', 'Reminder to rate driver', Icons.directions_car_outlined),
+                    _buildToggleTile('rate_order', lp.getText('rate_order_title'), lp.getText('rate_order_sub'), Icons.star_border),
+                    _buildToggleTile('driver_ratings', lp.getText('driver_ratings_title'), lp.getText('driver_ratings_sub'), Icons.directions_car_outlined),
                   ]),
 
                   const SizedBox(height: 25),
-                  _buildSectionHeader(Icons.notifications_active_outlined, 'Notification Methods'),
+                  _buildSectionHeader(Icons.notifications_active_outlined, lp.getText('methods_sec')),
                   _buildSettingsGroup([
-                    _buildToggleTile('voice', 'Voice Announcements', 'Hear updates spoken aloud', Icons.volume_up_outlined),
-                    _buildToggleTile('sound', 'Sound', 'Play notification sounds', Icons.volume_down_outlined),
-                    _buildToggleTile('vibration', 'Vibration', 'Phone vibrates on alerts', Icons.vibration_outlined),
-                    _buildToggleTile('push', 'Push Notifications', 'App notifications', Icons.chat_bubble_outline),
-                    _buildToggleTile('sms', 'SMS Notifications', 'Text message updates', Icons.chat_outlined),
-                    _buildToggleTile('email', 'Email Notifications', 'Updates via email', Icons.mail_outline),
+                    _buildToggleTile('voice', lp.getText('voice_ann_title'), lp.getText('voice_ann_sub'), Icons.volume_up_outlined),
+                    _buildToggleTile('sound', lp.getText('sound_title'), lp.getText('sound_sub'), Icons.volume_down_outlined),
+                    _buildToggleTile('vibration', lp.getText('vibration_title'), lp.getText('vibration_sub'), Icons.vibration_outlined),
+                    _buildToggleTile('push', lp.getText('push_title'), lp.getText('push_sub'), Icons.chat_bubble_outline),
+                    _buildToggleTile('sms', lp.getText('sms_title'), lp.getText('sms_sub'), Icons.chat_outlined),
+                    _buildToggleTile('email', lp.getText('email_title'), lp.getText('email_sub'), Icons.mail_outline),
                   ]),
                   const SizedBox(height: 30),
                 ],
@@ -134,27 +134,27 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  Widget _buildVoiceHint() {
+  Widget _buildVoiceHint(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFE8F1F2),
         borderRadius: BorderRadius.circular(15),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.mic_none, color: Color(0xFF00796B), size: 20),
-          SizedBox(width: 12),
+          const Icon(Icons.mic_none, color: Color(0xFF00796B), size: 20),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Voice Commands:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-                SizedBox(height: 4),
+                Text(lp.getText('voice_cmd_header'), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                const SizedBox(height: 4),
                 Text(
-                  '"Turn on order updates", "Disable promotions", "Mute all notifications"',
-                  style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
+                  lp.getText('voice_cmd_examples'),
+                  style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
                 ),
               ],
             ),
@@ -164,7 +164,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  Widget _buildMainToggleCard() {
+  Widget _buildMainToggleCard(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       decoration: BoxDecoration(
@@ -180,12 +180,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
             child: Icon(Icons.notifications_none, color: primaryRed, size: 28),
           ),
           const SizedBox(width: 15),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('All Notifications', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                Text('Receiving updates', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                Text(lp.getText('all_notifications'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                Text(lp.getText('receiving_updates'), style: const TextStyle(color: Colors.grey, fontSize: 14)),
               ],
             ),
           ),
@@ -224,18 +224,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Widget _buildToggleTile(String key, String title, String subtitle, IconData icon) {
+    bool isMasterOn = _settings['all']!;
     return Column(
       children: [
         ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          leading: Icon(icon, color: Colors.black45),
-          title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-          subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          leading: Icon(icon, color: isMasterOn ? Colors.black45 : Colors.grey[300]),
+          title: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: isMasterOn ? Colors.black : Colors.grey)),
+          subtitle: Text(subtitle, style: TextStyle(fontSize: 12, color: isMasterOn ? Colors.grey : Colors.grey[300])),
           trailing: Switch(
             value: _settings[key]!,
-            onChanged: _settings['all']!
+            onChanged: isMasterOn
                 ? (val) => setState(() => _settings[key] = val)
-                : null, // Disable individual switches if "All" is off
+                : null,
             activeThumbColor: primaryRed,
           ),
         ),

@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/profile.dart';
+import 'package:provider/provider.dart';
 
 import 'TrackOrderScreen.dart';
 import 'favorites.dart';
@@ -16,6 +18,14 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+    late LanguageProvider lp; // Declare it here
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   int _selectedIndex = 0;
 
   final List<Widget> _pages = [
@@ -52,19 +62,19 @@ class _HomePageState extends State<HomePage> {
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: "Home",
+            icon: const Icon(Icons.home_outlined),
+            activeIcon: const Icon(Icons.home),
+            label: lp.getText('nav_home'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.inventory_2_outlined),
-            label: "Orders",
+            icon: const Icon(Icons.inventory_2_outlined),
+            label:lp.getText('nav_orders'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: "Profile",
+            icon: const Icon(Icons.person_outline),
+            label:lp.getText('nav_profile'),
           ),
         ],
       ),
@@ -127,6 +137,7 @@ class HomeContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+   final lp = Provider.of<LanguageProvider>(context);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -145,11 +156,12 @@ class HomeContent extends StatelessWidget {
                   Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
                   displayName = data['name'] ?? "";
                 }
-
+ String greeting = lp.getText('hello');
                 return Row(
+                  
                   children: [
                     Text(
-                      displayName.isEmpty ? "Hello !" : "Hello $displayName!",
+                      displayName.isEmpty ? "$greeting !" : "$greeting $displayName!",
                       style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.bold,
@@ -164,9 +176,9 @@ class HomeContent extends StatelessWidget {
 
             const SizedBox(height: 8),
 
-            const Text(
-              "What would you like to eat today?",
-              style: TextStyle(
+            Text(
+             lp.getText('home_subtitle'),
+              style: const TextStyle(
                 fontSize: 16,
                 color: Colors.black54,
               ),
@@ -177,9 +189,9 @@ class HomeContent extends StatelessWidget {
             Center(
               child: Column(
                 children: [
-                  const Text(
-                    "Tap to speak your order",
-                    style: TextStyle(
+                  Text(
+                    lp.getText('tap_to_speak'),
+                    style: const TextStyle(
                       fontSize: 15,
                       color: Colors.black45,
                     ),
@@ -209,9 +221,9 @@ class HomeContent extends StatelessWidget {
 
             const Spacer(flex: 3),
 
-            const Text(
-              "Quick Actions",
-              style: TextStyle(
+            Text(
+              lp.getText('quick_actions'),
+              style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
@@ -223,7 +235,7 @@ class HomeContent extends StatelessWidget {
               children: [
                 buildQuickAction(
                   context,
-                  "Order Food",
+                  lp.getText('action_order'),
                   Icons.restaurant,
                   const Color(0xFFEB1B33),
                   () {
@@ -236,7 +248,7 @@ class HomeContent extends StatelessWidget {
                 const SizedBox(width: 16),
                 buildQuickAction(
                   context,
-                  "Track Order",
+                 lp.getText('action_track'),
                   Icons.inventory_2,
                   const Color(0xFFEB1B33),
                       () async { // Added 'async' here
@@ -276,7 +288,7 @@ class HomeContent extends StatelessWidget {
               children: [
                 buildQuickAction(
                   context,
-                  "Reorder",
+                 lp.getText('action_reorder'),
                   Icons.history,
                   const Color(0xFFEB1B33),
                   () {
@@ -289,7 +301,7 @@ class HomeContent extends StatelessWidget {
                 const SizedBox(width: 16),
                 buildQuickAction(
                   context,
-                  "Favorites",
+                 lp.getText('action_favorites'),
                   Icons.favorite_border,
                   const Color(0xFFEB1B33),
                   () {

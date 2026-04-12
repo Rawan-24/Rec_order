@@ -1,13 +1,28 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:intl/intl.dart'; // For date formatting
+import 'package:provider/provider.dart';
 
 import 'TrackOrderScreen.dart';
 
-class OrderHistoryPage extends StatelessWidget {
+class OrderHistoryPage extends StatefulWidget {
   const OrderHistoryPage({super.key});
 
+  @override
+  State<OrderHistoryPage> createState() => _OrderHistoryPageState();
+}
+
+class _OrderHistoryPageState extends State<OrderHistoryPage> {
+  late LanguageProvider lp; // Declare it here
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs whenever the context is ready or changes
+    lp = Provider.of<LanguageProvider>(context);
+  }
   @override
   Widget build(BuildContext context) {
     const primaryRed = Color(0xFFD32F2F);
@@ -17,16 +32,16 @@ class OrderHistoryPage extends StatelessWidget {
       child: Scaffold(
         backgroundColor: Colors.grey[50],
         appBar: AppBar(
-          title: const Text("Order History", style: TextStyle(fontWeight: FontWeight.bold)),
+          title:  Text(lp.getText('order_history'), style: TextStyle(fontWeight: FontWeight.bold)),
           backgroundColor: primaryRed,
           foregroundColor: Colors.white,
           elevation: 0,
-          bottom: const TabBar(
+          bottom: TabBar(
             indicatorColor: Colors.white,
             indicatorWeight: 3,
             tabs: [
-              Tab(text: "Active Orders"),
-              Tab(text: "Past Orders"),
+             Tab(text: lp.getText('active_orders')),
+               Tab(text: lp.getText('past_orders')),
             ],
           ),
         ),
@@ -44,7 +59,7 @@ class OrderHistoryPage extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: stream,
       builder: (context, snapshot) {
-        if (snapshot.hasError) return const Center(child: Text("Something went wrong"));
+        if (snapshot.hasError) return Center(child: Text(lp.getText('error_something_wrong')));
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -56,7 +71,7 @@ class OrderHistoryPage extends StatelessWidget {
               children: [
                 Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey[300]),
                 const SizedBox(height: 16),
-                Text("No orders found", style: TextStyle(color: Colors.grey[600])),
+                Text(lp.getText('no_orders'), style: TextStyle(color: Colors.grey[600])),
               ],
             ),
           );
@@ -66,15 +81,17 @@ class OrderHistoryPage extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           children: snapshot.data!.docs.map((doc) {
             Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+            // Localize the "items" string
+            String itemsCount = "${data['itemCount'] ?? 0} ${lp.getText('items_label')}";
             return _buildOrderCard(
               context: context,
               orderId: doc.id,
-              restaurant: data['restaurantName'] ?? "Unknown Restaurant",
+              restaurant: data['restaurantName'] ??lp.getText('unknown_restaurant'),
               date: data['timestamp'] != null 
                   ? DateFormat('MMM d, yyyy').format((data['timestamp'] as Timestamp).toDate())
-                  : "Recently",
+                 : lp.getText('recently'),
               status: data['status'] ?? "Pending",
-              items: "${data['itemCount'] ?? 0} items",
+              items: itemsCount,
               price: "\$${data['totalPrice']?.toStringAsFixed(2) ?? '0.00'}",
               accent: accent,
               showTrackButton: isActive,
@@ -98,14 +115,29 @@ class OrderHistoryPage extends StatelessWidget {
   }) {
     // Map status string to a specific color
     Color statusColor;
+    String statusText;
+ // Localize Statuses
     switch (status.toLowerCase()) {
-      case 'preparing': statusColor = Colors.orange; break;
-      case 'delivered': statusColor = Colors.green; break;
-      case 'cancelled': statusColor = Colors.red; break;
-      case 'on the way': statusColor = Colors.blue; break;
-      default: statusColor = Colors.grey;
+      case 'preparing': 
+        statusColor = Colors.orange; 
+        statusText = lp.getText('status_preparing');
+        break;
+      case 'delivered': 
+        statusColor = Colors.green; 
+        statusText = lp.getText('status_delivered');
+        break;
+      case 'cancelled': 
+        statusColor = Colors.red; 
+        statusText = lp.getText('status_cancelled');
+        break;
+      case 'on the way': 
+        statusColor = Colors.blue; 
+        statusText = lp.getText('status_on_way');
+        break;
+      default: 
+        statusColor = Colors.grey;
+        statusText = status;
     }
-
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 16),
@@ -163,7 +195,7 @@ class OrderHistoryPage extends StatelessWidget {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
-                    child: const Text("Track Order"),
+                    child:  Text(lp.getText('track_order')),
                   )
                 else
                   OutlinedButton(
@@ -175,7 +207,7 @@ class OrderHistoryPage extends StatelessWidget {
                       foregroundColor: accent,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
-                    child: const Text("Reorder"),
+                    child:  Text(lp.getText('reorder')),
                   ),
               ],
             ),

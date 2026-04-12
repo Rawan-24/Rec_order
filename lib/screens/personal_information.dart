@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
 
 class PersonalInformationPage extends StatefulWidget {
   const PersonalInformationPage({super.key});
@@ -10,7 +12,6 @@ class PersonalInformationPage extends StatefulWidget {
 }
 
 class _PersonalInformationPageState extends State<PersonalInformationPage> {
-  // Controllers
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
@@ -24,10 +25,8 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
     _fetchUserData();
   }
 
-  // --- Database Logic: Fetch ---
   Future<void> _fetchUserData() async {
     if (_user == null) return;
-
     try {
       DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -51,10 +50,8 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
     }
   }
 
-  // --- Database Logic: Update ---
-  Future<void> _updateProfile() async {
+  Future<void> _updateProfile(LanguageProvider lp) async {
     setState(() => _isLoading = true);
-
     try {
       await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({
         'name': _nameController.text.trim(),
@@ -64,13 +61,19 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Profile Updated Successfully!"), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(lp.getText('profile_update_success')), 
+            backgroundColor: Colors.green
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to update: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("${lp.getText('profile_update_fail')}: $e"), 
+            backgroundColor: Colors.red
+          ),
         );
       }
     } finally {
@@ -78,10 +81,9 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
     }
   }
 
-  // Helper for dynamic initials
   String _getInitials(String name) {
     if (name.isEmpty) return "??";
-    List<String> names = name.split(" ");
+    List<String> names = name.trim().split(" ");
     if (names.length > 1) {
       return "${names[0][0]}${names[1][0]}".toUpperCase();
     }
@@ -98,19 +100,20 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
     const primaryRed = Color(0xFFD32F2F);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Personal Information", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(lp.getText('personal_info_title'), style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: primaryRed,
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
           if (!_isLoading)
             TextButton(
-              onPressed: _updateProfile,
-              child: const Text("SAVE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: () => _updateProfile(lp),
+              child: Text(lp.getText('save_button'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
         ],
       ),
@@ -121,8 +124,6 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-                  
-                  // Dynamic Profile Avatar
                   Center(
                     child: Stack(
                       children: [
@@ -146,20 +147,17 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 40),
-
-                  _buildEditField("Full Name", _nameController, Icons.person_outline),
+                  _buildEditField(lp.getText('full_name_label'), _nameController, Icons.person_outline),
                   const SizedBox(height: 20),
-                  _buildEditField("Email Address", _emailController, Icons.email_outlined),
+                  _buildEditField(lp.getText('email_label'), _emailController, Icons.email_outlined),
                   const SizedBox(height: 20),
-                  _buildEditField("Phone Number", _phoneController, Icons.phone_android_outlined),
-
+                  _buildEditField(lp.getText('phone_label'), _phoneController, Icons.phone_android_outlined),
                   const SizedBox(height: 40),
-                  const Text(
-                    "Your data is encrypted and used only to improve your ordering experience.",
+                  Text(
+                    lp.getText('data_protection_note'),
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
                   ),
                 ],
               ),
@@ -175,7 +173,7 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
-          onChanged: (val) => setState(() {}), // Updates the avatar initials in real-time
+          onChanged: (val) => setState(() {}),
           decoration: InputDecoration(
             prefixIcon: Icon(icon, color: const Color(0xFFD32F2F)),
             filled: true,
