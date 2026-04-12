@@ -252,10 +252,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
                 String orderId = await DatabaseService().placeOrder(
                   userId: user.uid,
-                  items: cart.items,
                   total: cart.total,
-                  paymentMethod: selectedMethod, restaurantName: '', restaurantImage: '',
-            
+                  paymentMethod: selectedMethod,
+                  // FIX: Don't pass ''. Pass the actual name from the first item in the cart.
+
+                  restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
+                      ? "Multi-Restaurant Order"
+                      : cart.items.first.restaurant,
+                  // FIX: Pass the image from the first item.
+                  restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
+
+                  // FIX: Pass your actual cart items list to BOTH parameters just to be safe
+                  items: cart.items,
+                  cartItems: cart.items,
                 );
 
                 cart.clearCart();

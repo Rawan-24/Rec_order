@@ -24,10 +24,19 @@ class _HomePageState extends State<HomePage> {
     const ProfilePage(),
   ];
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  void _onItemTapped(int index) async {
+    if (index == 1) { // If "Orders" tab is clicked
+      String? id = await DatabaseService().getActiveOrderId();
+      setState(() {
+        _selectedIndex = index;
+        // You might need to update your _pages list dynamically
+        // or pass the ID to a state variable.
+      });
+    } else {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
   }
 
   @override
@@ -130,8 +139,8 @@ class HomeContent extends StatelessWidget {
             StreamBuilder<DocumentSnapshot>(
               stream: DatabaseService().getUserDataStream(),
               builder: (context, snapshot) {
-                String displayName = ""; 
-                
+                String displayName = "";
+
                 if (snapshot.hasData && snapshot.data!.exists) {
                   Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
                   displayName = data['name'] ?? "";
@@ -230,11 +239,32 @@ class HomeContent extends StatelessWidget {
                   "Track Order",
                   Icons.inventory_2,
                   const Color(0xFFEB1B33),
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const TrackOrderScreen(orderId: "")),
+                      () async { // Added 'async' here
+                    // 1. Show a loading indicator
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => const Center(
+                        child: CircularProgressIndicator(color: Color(0xFFEB1B33)),
+                      ),
                     );
+
+                    // 2. Get the ID from your DatabaseService
+                    // Make sure this method exists in your DatabaseService.dart!
+                    String? id = await DatabaseService().getActiveOrderId();
+
+                    // 3. Remove the loading indicator
+                    if (context.mounted) Navigator.pop(context);
+
+                    // 4. Navigate with the actual ID
+                    if (context.mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => TrackOrderScreen(orderId: id ?? ""),
+                        ),
+                      );
+                    }
                   },
                 ),
               ],

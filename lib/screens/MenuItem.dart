@@ -7,9 +7,9 @@ import 'package:grad_project/screens/CartScreen.dart';
 
 //Done
 class MenuItem extends StatefulWidget {
-
+  final String restaurantName;
   final MenuItemModel item;
-  const MenuItem({super.key, required this.item});
+  const MenuItem({super.key, required this.item, required this.restaurantName});
 
   static const String routeName="MenuItem";
   @override
@@ -186,15 +186,19 @@ class _MenuItem extends State<MenuItem> {
             elevation: 0,
           ),
           onPressed: () {
+
             // Logic to save the actual selection to the backend
             final cart = Provider.of<CartProvider>(context, listen: false);
+            print("DEBUG: Adding item from restaurant: ${cart.currentRestaurant}"); // or whatever your variable is
+            print("DEBUG: Item name: ${widget.item.name}");
             cart.addItem(CartItem(
+
               id: DateTime.now().toString(),
               name: widget.item.name, // You can pass this via constructor later
-              restaurant: cart.currentRestaurant,
+           restaurant: widget.restaurantName,
               details: "$selectedSize • ${selectedAddOns.join(', ')}",
               price: totalPrice / quantity, // Base price per item
-              quantity: quantity,
+              quantity: quantity, image: '',
             ));
             Navigator.push(
               context,

@@ -197,7 +197,8 @@ void _loadMenu() async {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => MenuItem(item: item,),
+                        builder: (context) => MenuItem(item: item,restaurantName: widget.restaurant.name),
+
                       ),
                     );
                   },

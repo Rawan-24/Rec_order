@@ -311,45 +311,44 @@ Future<void> savePaymentMethod(String userId, Map<String, dynamic> methodData) a
 
  /// Places a new order, links it to the user, and returns the Order ID
   Future<String> placeOrder({
+    required List<CartItem> cartItems,
     required String userId,
-    required List<CartItem> items, // Using your specific model
+    required List<CartItem> items,
     required double total,
     required String restaurantName,
     required String restaurantImage,
     String paymentMethod = 'card',
   }) async {
     try {
-      // 1. Create a reference to a new document to get the ID first
       DocumentReference orderRef = _db.collection('orders').doc();
 
-      // 2. Prepare the data
+      // --- FIX: SELF-HEALING NAME LOGIC ---
+      String finalName = restaurantName;
+      if (finalName.isEmpty && items.isNotEmpty) {
+        finalName = items.first.restaurant; // Pulls from your CartItem model
+      }
+      if (finalName.isEmpty) finalName = "RecOrder Partner";
+      // ------------------------------------
+
       Map<String, dynamic> orderData = {
         'orderId': orderRef.id,
         'userId': userId,
-        'items': items.map((item) => {
-          'name': item.name,
-          'price': item.price,
-          'quantity': item.quantity,
-         
-          'details': item.details ?? '', // Handle extra info if available
-        }).toList(),
+        'items': items.map((item) => item.toMap()).toList(),
         'totalPrice': total,
         'paymentMethod': paymentMethod,
         'status': "Pending",
-        'restaurantName': restaurantName.isEmpty ? "RecOrder Partner" : restaurantName,
+        'restaurantName': finalName, // Uses our validated name
         'restaurantImage': restaurantImage,
         'orderNumber': 'ORD${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
         'timestamp': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
       };
 
-      // 3. Save the order to the 'orders' collection
       await orderRef.set(orderData);
 
-      // 4. Update the User's document to link this as the "Active" order
-      // This is crucial for your Track Order screen logic!
       await _db.collection('users').doc(userId).set({
         'activeOrderId': orderRef.id,
-      }, SetOptions(merge: true)); // Use merge: true so we don't overwrite user profile data
+      }, SetOptions(merge: true));
 
       return orderRef.id;
     } catch (e) {
@@ -357,13 +356,6 @@ Future<void> savePaymentMethod(String userId, Map<String, dynamic> methodData) a
       throw Exception("Failed to place order: $e");
     }
   }
-
-
-
-
-
-
-
 
 
 Stream<List<Map<String, dynamic>>> getUserOrders(String userId) {
@@ -420,7 +412,24 @@ Stream<QuerySnapshot> getActiveOrders() {
       .orderBy('timestamp', descending: true)
       .snapshots();
 }
+// Fetch the ID of the current active order from the user's profile
+  Future<String?> getActiveOrderId() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
 
+      DocumentSnapshot doc = await _db.collection('users').doc(user.uid).get();
+
+      if (doc.exists && doc.data() != null) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        // This field MUST match what you save in placeOrder
+        return data['activeOrderId'] as String?;
+      }
+    } catch (e) {
+      debugPrint("Error fetching active order: $e");
+    }
+    return null;
+  }
 // Fetch orders that are finished
 Stream<QuerySnapshot> getPastOrders() {
   final user = FirebaseAuth.instance.currentUser;
