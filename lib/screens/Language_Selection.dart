@@ -50,55 +50,41 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
     }
   }
 
-  // UPDATED: Now saves to database
-void selectLanguage(String code) async {
-    // 1. Prevent double taps and stop listening
-    if (isSaving) return; 
+  void selectLanguage(String code) async { // 'code' is now 'en' or 'ar'
+    if (isSaving) return;
 
     setState(() => isSaving = true);
     speech.stop();
 
     try {
-      // 2. Map the code to a readable string for the voice confirmation
-      String displayLang = (code == 'ar') ? "Arabic" : "English";
-
-      // 3. Update the Global Provider (This flips the UI to RTL instantly)
       final languageProvider = Provider.of<LanguageProvider>(context, listen: false);
+
+      // Update Provider & Database with the code ('en' / 'ar')
       languageProvider.setLanguage(code);
-
-      // 4. Update the TTS voice language for the feedback
-      if (code == 'ar') {
-        await tts.setLanguage("ar-SA");
-      } else {
-        await tts.setLanguage("en-US");
-      }
-
-      // 5. Save preference to Firestore (Your existing Database Logic)
-      // Note: Make sure the 'code' is what your DB expects (e.g., 'en' or 'ar')
       await DatabaseService().updateUserLanguage(code);
 
-      // 6. Audio Confirmation
-      await confirmLanguage(displayLang);
-
-      // 7. Small delay for better UX
-      await Future.delayed(const Duration(seconds: 1));
-
-      if (mounted) {
-        // 8. Navigate to Tutorial (or /home depending on your flow)
-        Navigator.pushReplacementNamed(context, '/tutorial1');
+      // Set TTS and Confirmation display based on the choice
+      if (code == 'ar') {
+        await tts.setLanguage("ar-SA");
+        await confirmLanguage("العربية");
+      } else {
+        await tts.setLanguage("en-US");
+        await confirmLanguage("English");
       }
+
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted) Navigator.pushReplacementNamed(context, '/tutorial1');
+
     } catch (e) {
       if (mounted) {
         setState(() => isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error saving language preference: $e")),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
   }
   Widget languageButton(String code, String text) {
-    return InkWell(
-      onTap: isSaving ? null : () => selectLanguage(text),
+    String langCode = (text == "English") ? "en" : "ar";
+    return InkWell(onTap: isSaving ? null : () => selectLanguage(langCode),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 25, vertical: 10),
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -154,12 +140,14 @@ void selectLanguage(String code) async {
             const SizedBox(height: 30),
             const Text(
               "Choose Your Language",
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold
+              ,color: Colors.black,),
+
             ),
             const SizedBox(height: 10),
             const Text(
               "Select your preferred language",
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: TextStyle(fontSize: 16, color: Colors.black54,),
             ),
             const SizedBox(height: 40),
             languageButton("GB", "English"),

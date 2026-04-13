@@ -17,6 +17,7 @@ import 'package:grad_project/screens/TrackOrderScreen.dart';
 import 'package:grad_project/providers/LanguageProvider.dart'; 
 import 'package:provider/provider.dart';
 import 'connectivity_wrapper.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,27 +42,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // We use Consumer here so the app rebuilds and flips direction 
-    // immediately when the language changes.
+    // Use Consumer to listen for language changes
     return Consumer<LanguageProvider>(
-      builder: (context, langProvider, child) {
+      builder: (context, lp, child) {
         return MaterialApp(
+          // This line automatically handles LTR/RTL for the whole app
+          locale: Locale(lp.currentLanguage),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
             primaryColor: const Color(0xFF4169E1),
             fontFamily: 'Poppins',
           ),
-          
-          // Combining ConnectivityWrapper and RTL Directionality
-          builder: (context, child) {
-            return Directionality(
-              textDirection: langProvider.isRTL 
-                  ? TextDirection.rtl 
-                  : TextDirection.ltr,
-              child: ConnectivityWrapper(child: child!),
-            );
+          // Only use the builder for Connectivity, NOT for Directionality
+          builder: (context, widget) {
+            return ConnectivityWrapper(child: widget!);
           },
-
           initialRoute: '/',
           routes: {
             '/': (context) => const RecOrderSplashScreen(),
@@ -81,4 +82,6 @@ class MyApp extends StatelessWidget {
       },
     );
   }
+
+
 }

@@ -10,13 +10,13 @@ import 'package:grad_project/screens/RestaurantData.dart';
 
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-Future<void> createUserProfile(String uid, String username, String phone) async {
+Future<void> createUserProfile(String uid, String username, String phone,{String language = 'en'}) async {
     try {
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'username': username,
         'phone': phone,
-        'language': 'en', // default
+        'language': language, // default
         'createdAt': FieldValue.serverTimestamp(),
         'favorites': [], // Initialize empty favorites list for new users
       });
@@ -24,35 +24,48 @@ Future<void> createUserProfile(String uid, String username, String phone) async 
       print("Error creating user: $e");
     }
 
-}          
-
-
-
-
-
-
-
-
-
-Future<void> updateUserLanguage(String language) async {
-
-
-
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      // Use set with merge: true instead of update
-      await _db.collection('users').doc(user.uid).set({
-        'language': language,
-      }, SetOptions(merge: true)); 
-      
-      print("Language updated to $language");
-    }
-  } catch (e) {
-    debugPrint("Error updating language: $e");
-    rethrow;
-  }
 }
+
+
+  /// Specifically updates only the language field
+  /// This is called from your LanguageProvider
+
+
+  /// Fetches user data to check for language preference during splash/login
+  Future<Map<String, dynamic>?> getUserData(String uid) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('users').doc(uid).get();
+      return doc.data() as Map<String, dynamic>?;
+    } catch (e) {
+      print("Error fetching user data: $e");
+      return null;
+    }
+  }
+
+
+
+
+
+
+
+
+// DatabaseService.dart
+  Future<void> updateUserLanguage(String langCode) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // We only need the code (en/ar) to tell the app how to behave
+        await _db.collection('users').doc(user.uid).set({
+          'language': langCode,
+        }, SetOptions(merge: true));
+
+        print("Language updated to $langCode");
+      }
+    } catch (e) {
+      debugPrint("Error updating language: $e");
+      rethrow;
+    }
+  }
 Future<void> updateVoiceSettings(String uid, Map<String, dynamic> voiceData) async {
     try {
       await _db.collection('users').doc(uid).set({

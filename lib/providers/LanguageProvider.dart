@@ -3,30 +3,32 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../DatabaseService.dart';
+
 class LanguageProvider with ChangeNotifier {
-  String _currentLanguage = 'en'; // Default
+
+  String _currentLanguage = 'en';
+
   String get currentLanguage => _currentLanguage;
-
-
-  // ADD THIS LINE BELOW
   bool get isEnglish => _currentLanguage == 'en';
-Future<void> changeLanguage(String langCode) async {
-    if (_currentLanguage == langCode) return; // Don't do anything if language is the same
 
-    _currentLanguage = langCode;
-    
-    // Save to local storage so it persists after restart
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('language_code', langCode);
-    
-    // This is the most important line - it tells the UI to flip to Arabic/English
-    notifyListeners();
+  bool get isRTL => _currentLanguage == 'ar';
+
+  LanguageProvider() {
+    _loadLanguage();
   }
-  
+
+
+  // Load saved language from device storage
+
+
   // Dictionary for all strings found in your files
   static final Map<String, Map<String, String>> _localizedValues = {
     'en': {
-      'signup_voice_instructions': "Sign up page. Please enter your full name and phone number to create an account.",
+      'start_btn':"Start",
+      'next_btn':"Next",
+      'skip':"skip",
+      'signup_voice_instructions':"Sign up page. Please enter your full name and phone number to create an account.",
 'signup_subtitle': "Create your account",
 'full_name_label': "Full Name",
 'full_name_hint': "Enter your name",
@@ -297,9 +299,31 @@ Future<void> changeLanguage(String langCode) async {
       'voice_lang_header': 'Voice Language',
       'vol_silent': 'Silent',
       'vol_loud': 'Loud',
+
+      'verify_title':"verfiy Phone Number",
+      'verify_subtitle':"Enter the 6-digit code sent to ",
+      'no_code':"Didn't receive the code?",
+          'resend_btn':"Resend Code",
+          'verify_btn':"Verfiy",
+      'proceed_to_checkout':"Proceed to Checkout",
+      'footer_almost_there':"your food is almost there!",
+          'arrival_estimate_label':"Estimated Arrival",
+          'rider_label':"1200+ deliveries"
     },
     'ar': {
+      'footer_almost_there': "طعامك اقترب من الوصول!",
+      'arrival_estimate_label': "الوقت المقدر للوصول",
+      'rider_label': "أكثر من ١٢٠٠ عملية توصيل",
+      'proceed_to_checkout': "المتابعة لإتمام الطلب",
+      'verify_title': "تحقق من رقم الهاتف",
+      'verify_subtitle': "أدخل الرمز المكون من 6 أرقام المرسل إلى ",
+      'no_code': "لم تستلم الرمز؟",
+      'resend_btn': "إعادة إرسال الرمز",
+      'verify_btn': "تحقق",
+      'start_btn':"أبداء",
+      'next_btn':"اكمل",
       // Voice Settings Page
+      'skip':'التخطى',
       'voice_settings_title': 'إعدادات الصوت',
       'voice_hint_text': 'جرب: "تفعيل الرد الصوتي"، "ضبط السرعة على سريع"',
       'voice_commands_main': 'الأوامر الصوتية',
@@ -367,7 +391,7 @@ Future<void> changeLanguage(String langCode) async {
 'error_enter_username': "الرجاء إدخال اسم المستخدم",
 'error_name_short': "يجب أن يكون الاسم 3 أحرف على الأقل",
       'signin_voice_instructions': "صفحة تسجيل الدخول. يرجى إدخال رقم هاتفك. إذا لم يكن لديك حساب، قل إنشاء حساب.",
-'welcome_title': "مرحباً بك في Say & Serve",
+'welcome_title': "مرحباً بك في Rec-Order",
 'signin_subtitle': "سجل دخولك للمتابعة",
 'phone_number_label': "رقم الهاتف",
 'stay_signed_in': "البقاء متصلاً",
@@ -575,11 +599,8 @@ Future<void> changeLanguage(String langCode) async {
     }
   };
 
-  String getText(String key) {
-    return _localizedValues[_currentLanguage]?[key] ?? key;
-  }
 
-  bool get isRTL => _currentLanguage == 'ar';
+
 
   void setLanguage(String langCode) {
     _currentLanguage = langCode;
@@ -609,4 +630,34 @@ Future<void> _updateFirestore(String lang) async {
     debugPrint("Firestore Language Update Failed: $e");
   }
 }
+
+  String getText(String key) {
+    return _localizedValues[_currentLanguage]?[key] ?? key;
+  }
+
+  // --- LOADING LOGIC ---
+  Future<void> _loadLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    _currentLanguage = prefs.getString('language_code') ?? 'en';
+    notifyListeners();
+  }
+
+  // --- CHANGING LOGIC ---
+  Future<void> changeLanguage(String langCode) async {
+    if (_currentLanguage == langCode) return;
+    _currentLanguage = langCode;
+
+    // 1. Save locally
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('language_code', langCode);
+
+    // 2. Save to Firestore (via DatabaseService)
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await DatabaseService().updateUserLanguage( langCode);
+    }
+
+    notifyListeners();
+  }
+
 }

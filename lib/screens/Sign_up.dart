@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
 
@@ -57,7 +56,8 @@ class _SignUpPageState extends State<SignUpPage> {
             await DatabaseService().createUserProfile(
                 uid, 
                 _usernameController.text.trim(), 
-                phone
+                phone,
+                language: lp.currentLanguage // Pass the actual language selected
             );
 
             final prefs = await SharedPreferences.getInstance();
