@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/screens/personal_information.dart';
 
-import 'Delivery_Address.dart';
 import 'Home.dart';
 import 'Language_Selection.dart';
 import 'NotificationsPage.dart';
@@ -15,8 +14,52 @@ import 'VoiceSettingsPage.dart';
 import 'favorites.dart';
 import 'history.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final TextEditingController _addressController = TextEditingController();
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _addressController.dispose();
+    super.dispose();
+  }
+
+  // --- LOGIC: Save Address to Firestore ---
+  Future<void> _updateAddress(String uid, LanguageProvider lp) async {
+    if (_addressController.text.trim().isEmpty) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+        'address': _addressController.text.trim(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green,
+            content: Text(lp.isEnglish ? "Address Updated!" : "تم تحديث العنوان!"),
+          ),
+        );
+        // Remove focus from keyboard
+        FocusScope.of(context).unfocus();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
 
   String _getInitials(String name) {
     if (name.isEmpty) return "??";
@@ -50,6 +93,11 @@ class ProfilePage extends StatelessWidget {
           var userData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
           String displayName = userData['name'] ?? lp.getText('user_name_placeholder');
           String displayPhone = userData['phone'] ?? lp.getText('no_phone_placeholder');
+          
+          // Initialize controller with DB value if it's currently empty
+          if (_addressController.text.isEmpty && userData['address'] != null) {
+            _addressController.text = userData['address'];
+          }
 
           return SingleChildScrollView(
             child: Column(
@@ -111,11 +159,57 @@ class ProfilePage extends StatelessWidget {
                     children: [
                       _buildVoiceBar(primaryRed, lp),
                       const SizedBox(height: 30),
+
+                      // --- NEW: INTEGRATED ADDRESS SECTION ---
+                      Text(
+                        lp.isEnglish ? "Delivery Address" : "عنوان التوصيل",
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(15),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 5))],
+                        ),
+                        child: Column(
+                          children: [
+                            TextField(
+                              controller: _addressController,
+                              maxLines: 2,
+                              style: const TextStyle(fontSize: 14),
+                              decoration: InputDecoration(
+                                hintText: lp.isEnglish ? "Enter your full address..." : "أدخل عنوانك بالتفصيل...",
+                                hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+                                border: InputBorder.none,
+                                icon: const Icon(Icons.location_on_outlined, color: primaryRed),
+                              ),
+                            ),
+                            const Divider(),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _isSaving ? null : () => _updateAddress(user!.uid, lp),
+                                child: _isSaving 
+                                  ? const SizedBox(height: 15, width: 15, child: CircularProgressIndicator(strokeWidth: 2, color: primaryRed))
+                                  : Text(
+                                      lp.isEnglish ? "Update Address" : "تحديث العنوان",
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                              ),
+                            )
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 30),
                       _buildSectionTitle(lp.getText('recent_orders'), lp, onAction: () {
                         Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
                       }),
                       const SizedBox(height: 10),
 
+                      // Recent Orders Stream
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('orders')
@@ -137,7 +231,7 @@ class ProfilePage extends StatelessWidget {
                               return _buildOrderCard(
                                 data['restaurantName'] ?? lp.getText('restaurant_placeholder'),
                                 "$itemCount ${lp.getText('items_label')}",
-                                "SAR ${(data['totalPrice'] ?? 0.0).toStringAsFixed(2)}",
+                                "SAR ${(data['total'] ?? 0.0).toStringAsFixed(2)}",
                                 primaryRed,
                                 lp,
                               );
@@ -152,9 +246,7 @@ class ProfilePage extends StatelessWidget {
                         _buildSettingsTile(Icons.person_outline, lp.getText('personal_info_tile'), onTap: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalInformationPage()));
                         }),
-                        _buildSettingsTile(Icons.location_on_outlined, lp.getText('delivery_addresses_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const DeliveryAddressesPage()));
-                        }),
+                        // Note: Delivery Addresses tile removed as it is now integrated above
                         _buildSettingsTile(Icons.payment_outlined, lp.getText('payment_methods_tile'), onTap: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentMethodsPage()));
                         }),
@@ -198,6 +290,8 @@ class ProfilePage extends StatelessWidget {
       ),
     );
   }
+
+  // --- UI HELPER METHODS ---
 
   Widget _buildVoiceBar(Color primaryRed, LanguageProvider lp) {
     return Container(

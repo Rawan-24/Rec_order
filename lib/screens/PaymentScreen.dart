@@ -236,49 +236,101 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  Widget _buildBottomPayButton(LanguageProvider lp, CartProvider cart) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-      color: Colors.white,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFEB1B33),
-          minimumSize: const Size(double.infinity, 60),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        ),
-        onPressed: () async {
-          if (selectedMethod == 'cash' || isVoiceConfirmed) {
-            User? user = FirebaseAuth.instance.currentUser;
-            if (user != null) {
-              try {
-                showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator()));
-
-                String orderId = await DatabaseService().placeOrder(
-                  userId: user.uid,
-                  total: cart.total,
-                  paymentMethod: selectedMethod,
-                  restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
-                      ? "Multi-Restaurant Order"
-                      : cart.items.first.restaurant,
-                  restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
-                  items: cart.items,
-                  cartItems: cart.items,
-                );
-
-                cart.clearCart();
-                Navigator.pop(context); // Remove loading
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
-              } catch (e) {
-                Navigator.pop(context); // Remove loading
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${lp.getText('error')}: $e")));
-              }
-            }
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('confirm_voice_first'))));
-          }
-        },
-        child: Text("${lp.getText('confirm_and_pay')}  ${cart.total.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+Widget _buildBottomPayButton(LanguageProvider lp, CartProvider cart) {
+  return Container(
+    padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
+    color: Colors.white,
+    child: ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFEB1B33),
+        minimumSize: const Size(double.infinity, 60),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       ),
-    );
-  }
+      onPressed: () async {
+        // 1. First Validation: Voice Confirmation (for Card)
+        if (selectedMethod == 'card' && !isVoiceConfirmed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(lp.getText('confirm_voice_first'))),
+          );
+          return;
+        }
+
+        // 2. Second Validation: CHECK FOR ADDRESS IN FIRESTORE
+        showDialog(
+          context: context, 
+          barrierDismissible: false, 
+          builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.red))
+        );
+
+        bool addressExists = await DatabaseService().hasSavedAddress();
+
+        if (!addressExists) {
+          if (mounted) {
+            Navigator.pop(context); // Remove loading indicator
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.red,
+                content: Text(
+                  lp.isEnglish 
+                    ? "Please enter your address in your profile first" 
+                    : "يرجى إدخال عنوانك في الملف الشخصي أولاً",
+                ),
+                action: SnackBarAction(
+                  label: lp.isEnglish ? "GO" : "اذهب",
+                  textColor: Colors.white,
+                  onPressed: () => Navigator.pushNamed(context, '/profile'),
+                ),
+              ),
+            );
+          }
+          return; // Stop the checkout process here
+        }
+
+        // 3. Address is confirmed! Proceed to Place Order
+        User? user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          try {
+            // Loading is already showing from step 2
+            String orderId = await DatabaseService().placeOrder(
+              userId: user.uid,
+              total: cart.total,
+              paymentMethod: selectedMethod,
+              restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
+                  ? "Multi-Restaurant Order"
+                  : cart.items.first.restaurant,
+              restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
+              items: cart.items,
+              cartItems: cart.items,
+            );
+
+            cart.clearCart();
+            if (mounted) {
+              Navigator.pop(context); // Remove loading
+              Navigator.pushReplacement(
+                context, 
+                MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId))
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              Navigator.pop(context); // Remove loading
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("${lp.getText('error')}: $e"))
+              );
+            }
+          }
+        }
+      },
+      child: Text(
+        "${lp.getText('confirm_and_pay')}  ${cart.total.toStringAsFixed(2)}", 
+        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)
+      ),
+    ),
+  );
+}
+
+
+
+
+
 }
