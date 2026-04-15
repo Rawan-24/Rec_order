@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/screens/profile.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/screens/CartProvider.dart';
@@ -278,7 +279,16 @@ Widget _buildBottomPayButton(LanguageProvider lp, CartProvider cart) {
                 action: SnackBarAction(
                   label: lp.isEnglish ? "GO" : "اذهب",
                   textColor: Colors.white,
-                  onPressed: () => Navigator.pushNamed(context, '/profile'),
+                  onPressed: () {
+                    // 2. THIS IS THE FIX: Clear the snackbar immediately
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+                    // 3. Navigate using MaterialPageRoute (Safer than pushNamed)
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ProfilePage())
+                    );
+                  },
                 ),
               ),
             );
