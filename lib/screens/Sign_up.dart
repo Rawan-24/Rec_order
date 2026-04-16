@@ -5,7 +5,7 @@ import 'package:grad_project/DatabaseService.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart'; // Standardized Provider
+import 'package:grad_project/providers/AudioProvider.dart';
 
 class SignUpPage extends StatefulWidget {
   static const String routeName = "SignUpPage";
@@ -20,6 +20,7 @@ class _SignUpPageState extends State<SignUpPage> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   bool isLoading = false;
+  final Color primaryRed = const Color(0xFFEB1B33);
 
   @override
   void initState() {
@@ -29,20 +30,16 @@ class _SignUpPageState extends State<SignUpPage> {
     });
   }
 
-  // FIXED: Using AppAudioProvider for synchronized speech
   void _announceSignUp() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stop(); // Clear any previous audio from SignIn/Splash
+    await audio.stop();
 
-    if (lp.isRTL) {
-      await audio.speak("إنشاء حساب جديد.", "ar-EG");
-      await Future.delayed(const Duration(milliseconds: 300));
-      await audio.speak("من فضلك أدخل اسمك ورقم هاتفك للبدء.", "ar-EG");
-    } else {
-      await audio.speak("Create a new account. Please enter your name and phone number to get started.", "en-US");
-    }
+    String msg = lp.isRTL
+        ? "إنشاء حساب جديد. من فضلك أدخل اسمك ورقم هاتفك للبدء."
+        : "Create a new account. Please enter your name and phone number to get started.";
+    audio.speak(msg, lp.currentLanguage);
   }
 
   void _signUp() async {
@@ -50,16 +47,16 @@ class _SignUpPageState extends State<SignUpPage> {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
     if (!_formKey.currentState!.validate()) {
-      await audio.speak(lp.isRTL ? "يرجى التأكد من البيانات" : "Please check your information", lp.currentLanguage);
+      audio.speak(lp.isRTL ? "يرجى إكمال البيانات" : "Please complete your info", lp.currentLanguage);
       return;
     }
 
     setState(() { isLoading = true; });
 
     String phone = _phoneController.text.trim();
-    // Auto-prefix for Egyptian numbers to make the demo smoother
+    // Normalizing for Egyptian region (+20)
     if (!phone.startsWith('+')) {
-      phone = "+20$phone";
+      phone = phone.startsWith('0') ? "+2$phone" : "+20$phone";
     }
 
     try {
@@ -67,171 +64,101 @@ class _SignUpPageState extends State<SignUpPage> {
         phoneNumber: phone,
         verificationCompleted: (PhoneAuthCredential credential) async {
           UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-          String? uid = userCredential.user?.uid;
-
-          if (uid != null) {
-            await DatabaseService().createUserProfile(
-                uid,
-                _usernameController.text.trim(),
-                phone,
-                language: lp.currentLanguage
-            );
-
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('username', _usernameController.text.trim());
-            await prefs.setString('phone', phone);
-            await prefs.setBool('staySignedIn', true);
-
-            if (mounted) Navigator.pushReplacementNamed(context, '/home');
-          }
+          await _finalizeUserAccount(userCredential.user, phone, lp);
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() { isLoading = false; });
-          String errorMsg = e.message ?? lp.getText('error_verification_failed');
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
-          audio.speak(lp.isRTL ? "حدث خطأ في التحقق" : "Verification failed", lp.currentLanguage);
+          audio.speak(lp.isRTL ? "خطأ في التحقق" : "Verification error", lp.currentLanguage);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? "Error")));
         },
         codeSent: (String verificationId, int? resendToken) async {
           setState(() { isLoading = false; });
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('username', _usernameController.text.trim());
-          await prefs.setString('phone', phone);
-
           if (mounted) {
-            Navigator.pushNamed( // Allow back navigation to fix typos
-              context,
-              '/verfiy',
-              arguments: {
-                'verificationId': verificationId,
-                'username': _usernameController.text.trim(),
-                'phone': phone,
-                'isSigningIn': false,
-              },
-            );
+            Navigator.pushNamed(context, '/verfiy', arguments: {
+              'verificationId': verificationId,
+              'username': _usernameController.text.trim(),
+              'phone': phone,
+              'isSigningIn': false,
+            });
           }
         },
-        codeAutoRetrievalTimeout: (String verificationId) {
-          if (mounted) setState(() { isLoading = false; });
-        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
       );
     } catch (e) {
-      if (mounted) setState(() { isLoading = false; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      setState(() { isLoading = false; });
     }
+  }
+
+  // Helper to ensure database and local storage are synced
+  Future<void> _finalizeUserAccount(User? user, String phone, LanguageProvider lp) async {
+    if (user == null) return;
+    String name = _usernameController.text.trim();
+
+    await DatabaseService().createUserProfile(
+        user.uid,
+        name,
+        phone,
+        language: lp.currentLanguage
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', name);
+    await prefs.setBool('staySignedIn', true);
+
+    if (mounted) Navigator.pushReplacementNamed(context, '/home');
   }
 
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
-    const primaryRed = Color(0xFFEB1B33);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 25),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                const SizedBox(height: 40),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 30),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  _buildBrandingIcon(),
+                  const SizedBox(height: 30),
+                  Text(lp.getText('welcome_title'),
+                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 10),
+                  Text(lp.getText('signup_subtitle'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15, color: Colors.grey[600])),
+                  const SizedBox(height: 40),
 
-                // Mic Icon Branding
-                Container(
-                  height: 110, width: 110,
-                  decoration: BoxDecoration(
-                    color: primaryRed.withOpacity(0.1),
-                    shape: BoxShape.circle,
+                  _buildTextField(
+                    controller: _usernameController,
+                    label: lp.getText('full_name_label'),
+                    hint: lp.getText('full_name_hint'),
+                    icon: Icons.person_rounded,
+                    lp: lp,
                   ),
-                  child: const Icon(Icons.mic, color: primaryRed, size: 45),
-                ),
 
-                const SizedBox(height: 25),
-                Text(
-                  lp.getText('welcome_title'),
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  lp.getText('signup_subtitle'),
-                  style: const TextStyle(fontSize: 16, color: Colors.grey),
-                ),
-                const SizedBox(height: 40),
+                  const SizedBox(height: 20),
 
-                // Name Field
-                _buildLabel(lp.getText('full_name_label'), lp),
-                const SizedBox(height: 8),
-                _buildTextField(
-                  controller: _usernameController,
-                  hint: lp.getText('full_name_hint'),
-                  icon: Icons.person_outline,
-                  lp: lp,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return lp.getText('error_enter_username');
-                    if (value.length < 3) return lp.getText('error_name_short');
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 25),
-
-                // Phone Field
-                _buildLabel(lp.getText('phone_number_label'), lp),
-                const SizedBox(height: 8),
-                _buildTextField(
-                  controller: _phoneController,
-                  hint: lp.isRTL ? "٠١XXXXXXXX" : "01XXXXXXXX",
-                  icon: Icons.phone_iphone,
-                  lp: lp,
-                  isPhone: true,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return lp.getText('error_enter_phone');
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 40),
-
-                // Sign Up button
-                SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _signUp,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryRed,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      elevation: 0,
-                    ),
-                    child: isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : Text(
-                      lp.getText('signup_button'),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
+                  _buildTextField(
+                    controller: _phoneController,
+                    label: lp.getText('phone_number_label'),
+                    hint: "01XXXXXXXX",
+                    icon: Icons.phone_android_rounded,
+                    isPhone: true,
+                    lp: lp,
                   ),
-                ),
 
-                const SizedBox(height: 25),
+                  const SizedBox(height: 40),
 
-                // Sign in link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(lp.getText('already_have_account')),
-                    const SizedBox(width: 5),
-                    GestureDetector(
-                      onTap: () => Navigator.pushReplacementNamed(context, '/signin'),
-                      child: Text(
-                        lp.getText('signin_link'),
-                        style: const TextStyle(color: primaryRed, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-              ],
+                  _buildSignUpButton(lp),
+
+                  const SizedBox(height: 25),
+                  _buildSignInLink(lp),
+                ],
+              ),
             ),
           ),
         ),
@@ -239,43 +166,87 @@ class _SignUpPageState extends State<SignUpPage> {
     );
   }
 
-  Widget _buildLabel(String text, LanguageProvider lp) {
-    return Align(
-      alignment: lp.isRTL ? Alignment.centerRight : Alignment.centerLeft,
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+  Widget _buildBrandingIcon() {
+    return Container(
+      height: 100, width: 100,
+      decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [BoxShadow(color: primaryRed.withOpacity(0.1), blurRadius: 20)]
       ),
+      child: Icon(Icons.person_add_rounded, color: primaryRed, size: 40),
     );
   }
 
   Widget _buildTextField({
     required TextEditingController controller,
+    required String label,
     required String hint,
     required IconData icon,
     required LanguageProvider lp,
-    required String? Function(String?) validator,
     bool isPhone = false,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
-        ],
-      ),
-      child: TextFormField(
-        controller: controller,
-        textAlign: lp.isRTL ? TextAlign.right : TextAlign.left,
-        keyboardType: isPhone ? TextInputType.phone : TextInputType.text,
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: Icon(icon, color: Colors.grey),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.all(20),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
         ),
-        validator: validator,
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.black.withOpacity(0.05)),
+          ),
+          child: TextFormField(
+            controller: controller,
+            keyboardType: isPhone ? TextInputType.phone : TextInputType.text,
+            textAlign: lp.isRTL ? TextAlign.right : TextAlign.left,
+            decoration: InputDecoration(
+              hintText: hint,
+              prefixIcon: Icon(icon, color: primaryRed, size: 20),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 15),
+            ),
+            validator: (val) => val!.isEmpty ? lp.getText('error_enter_data') : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSignUpButton(LanguageProvider lp) {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: isLoading ? null : _signUp,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryRed,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          shadowColor: primaryRed.withOpacity(0.3),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        ),
+        child: isLoading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : Text(lp.getText('signup_button'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  Widget _buildSignInLink(LanguageProvider lp) {
+    return GestureDetector(
+      onTap: () => Navigator.pushReplacementNamed(context, '/signin'),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(color: Colors.black54, fontSize: 14),
+          children: [
+            TextSpan(text: "${lp.getText('already_have_account')} "),
+            TextSpan(text: lp.getText('signin_link'), style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
+          ],
+        ),
       ),
     );
   }

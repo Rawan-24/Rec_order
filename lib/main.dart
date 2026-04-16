@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/firebase_options.dart';
+import 'package:grad_project/providers/GlobalVoiceWrapper.dart';
 import 'package:grad_project/screens/Home.dart';
 import 'package:grad_project/screens/Language_Selection.dart';
 import 'package:grad_project/screens/Sign_in.dart';
@@ -50,17 +51,11 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // We use Consumer<LanguageProvider> to rebuild the app instantly
-    // when the user switches between Arabic and English
     return Consumer<LanguageProvider>(
       builder: (context, lp, child) {
         return MaterialApp(
-          // Sets the locale (LTR or RTL) based on the LanguageProvider
           locale: Locale(lp.currentLanguage),
-          supportedLocales: const [
-            Locale('en'),
-            Locale('ar')
-          ],
+          supportedLocales: const [Locale('en'), Locale('ar')],
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -71,9 +66,11 @@ class MyApp extends StatelessWidget {
             primaryColor: const Color(0xFF4169E1),
             fontFamily: 'Poppins',
           ),
-          // Wraps the entire app in a Connectivity check
-          builder: (context, widget) {
-            return ConnectivityWrapper(child: widget!);
+          // FIX: Nested builders to include both Connectivity and Voice
+          builder: (context, child) {
+            return ConnectivityWrapper(
+              child: GlobalVoiceWrapper(child: child!),
+            );
           },
           initialRoute: '/',
           routes: {
@@ -82,7 +79,7 @@ class MyApp extends StatelessWidget {
             "/signin": (context) => const SignInScreen(),
             "/SignUp": (context) => const SignUpPage(),
             '/home': (context) => const HomePage(),
-            '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: ''),
+            '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: ''), // Consider passing ID via arguments
             '/PaymentScreen': (context) => const PaymentScreen(),
             '/tutorial1': (context) => const VoiceOnboardingScreen(),
           },
