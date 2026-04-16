@@ -1,13 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import 'package:grad_project/providers/LanguageProvider.dart'; // Ensure this import is correct
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Standardized Provider
 
 class VerificationScreen extends StatefulWidget {
+  static const String routeName = "VerificationScreen";
   const VerificationScreen({super.key});
 
   @override
@@ -15,7 +16,6 @@ class VerificationScreen extends StatefulWidget {
 }
 
 class _VerificationScreenState extends State<VerificationScreen> {
-  final FlutterTts tts = FlutterTts(); 
   final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   bool isLoading = false;
@@ -23,9 +23,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
   @override
   void initState() {
     super.initState();
-    // Language setup happens dynamically in _verifyAndNavigate now
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announceVerification();
+    });
   }
-  
+
+  // FIXED: Using AppAudioProvider for voice guidance
+  void _announceVerification() async {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    await audio.stop();
+
+    if (lp.isRTL) {
+      await audio.speak("الرجاء إدخال رمز التحقق المكون من ستة أرقام.", "ar-EG");
+    } else {
+      await audio.speak("Please enter the six digit verification code sent to your phone.", "en-US");
+    }
+  }
+
   @override
   void dispose() {
     for (var controller in _controllers) controller.dispose();
@@ -35,8 +51,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   void _verifyAndNavigate() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
     String otp = _controllers.map((e) => e.text).join();
-    
+
     if (otp.length == 6) {
       setState(() { isLoading = true; });
 
@@ -49,14 +66,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
       }
 
       final String verificationId = args['verificationId'] ?? '';
-      final String? username = args['username']; 
+      final String? username = args['username'];
       final String phone = args['phone'] ?? '';
       final bool isSigningIn = args['isSigningIn'] ?? false;
 
       try {
         PhoneAuthCredential credential = PhoneAuthProvider.credential(
-          verificationId: verificationId, 
-          smsCode: otp
+            verificationId: verificationId,
+            smsCode: otp
         );
 
         UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
@@ -66,14 +83,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
         if (!userDoc.exists) {
           if (isSigningIn) {
-            // Bilingual Voice Error
-            await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
-            tts.speak(lp.getText('account_not_found_voice')); 
-            
+            // Voice Error if trying to sign in to non-existent account
+            await audio.speak(lp.getText('account_not_found_voice'), lp.currentLanguage);
             if (mounted) Navigator.pushReplacementNamed(context, '/SignUp');
             return;
           } else if (username != null) {
-            await DatabaseService().createUserProfile(uid, username, phone);
+            await DatabaseService().createUserProfile(uid, username, phone, language: lp.currentLanguage);
           }
         } else {
           final prefs = await SharedPreferences.getInstance();
@@ -84,114 +99,96 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
       } on FirebaseAuthException catch (e) {
         setState(() { isLoading = false; });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.code == 'invalid-verification-code' ? lp.getText('wrong_code') : e.message ?? 'Error'))
-        );
+        String errorMsg = e.code == 'invalid-verification-code' ? lp.getText('wrong_code') : lp.getText('error_occurred');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
+        audio.speak(errorMsg, lp.currentLanguage);
       } catch (e) {
         setState(() { isLoading = false; });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('error_occurred'))));
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('enter_6_digits'))));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
+    const primaryRed = Color(0xFFEB1B33);
     final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
-    final String displayPhone = args?['phone'] ?? "your number";
+    final String displayPhone = args?['phone'] ?? "";
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
+        ),
+      ),
       body: SafeArea(
-        child: SingleChildScrollView( // Added scroll view to prevent overflow on small keyboards
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 25),
-            child: Column(
-              children: [
-                Align(
-                  alignment: lp.isEnglish ? Alignment.topLeft : Alignment.topRight,
-                  child: IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(lp.isEnglish ? Icons.arrow_back : Icons.arrow_forward, color: Colors.black),
-                  ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 25),
+          child: Column(
+            children: [
+              const SizedBox(height: 20),
+              Container(
+                height: 100, width: 100,
+                decoration: BoxDecoration(
+                  color: primaryRed.withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(height: 20),
-                Container(
-                  height: 100, width: 100,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEB1B33).withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.shield_outlined, color: Color(0xFFEB1B33), size: 40),
+                child: const Icon(Icons.security, color: primaryRed, size: 40),
+              ),
+              const SizedBox(height: 30),
+              Text(
+                lp.getText('verify_title'),
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "${lp.getText('verify_subtitle')}\n$displayPhone",
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, color: Colors.grey, height: 1.5),
+              ),
+              const SizedBox(height: 40),
+
+              // OTP Boxes
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: List.generate(6, (index) => _buildOtpBox(index, primaryRed)),
                 ),
-                const SizedBox(height: 30),
-                Text(
-                  lp.getText('verify_title'),
-                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+              ),
+
+              const SizedBox(height: 40),
+              Text(lp.getText('no_code'), style: const TextStyle(color: Colors.grey)),
+              TextButton(
+                onPressed: () { /* Add Resend Logic if needed */ },
+                child: Text(
+                  lp.getText('resend_btn'),
+                  style: const TextStyle(color: primaryRed, fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  "${lp.getText('verify_subtitle')} $displayPhone",
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 15, color: Colors.grey),
-                ),
-                const SizedBox(height: 40),
-                Directionality(
-                  textDirection: TextDirection.ltr, // Keep OTP boxes left-to-right
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(6, (index) => _buildOtpBox(index)),
-                  ),
-                ),
-                const SizedBox(height: 40),
-                Text(lp.getText('no_code'), style: const TextStyle(color: Colors.grey)),
-                const SizedBox(height: 10),
-                GestureDetector(
-                  onTap: () => print("Resending..."),
-                  child: Text(
-                    lp.getText('resend_btn'),
-                    style: const TextStyle(color: Color(0xFFEB1B33), fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ),
-                const SizedBox(height: 100), // Replacement for Spacer in ScrollView
-                SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _verifyAndNavigate,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEB1B33),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    ),
-                    child: isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          lp.getText('verify_btn'),
-                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 60),
+
+              _buildVerifyButton(primaryRed, lp),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildOtpBox(int index) {
+  Widget _buildOtpBox(int index, Color color) {
     return Container(
-      height: 60,
-      width: 45,
+      height: 60, width: 45,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _controllers[index].text.isNotEmpty ? const Color(0xFFEB1B33) : Colors.grey.shade300,
-          width: 2,
-        ),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))
+        ],
       ),
       child: TextField(
         controller: _controllers[index],
@@ -204,12 +201,35 @@ class _VerificationScreenState extends State<VerificationScreen> {
         onChanged: (value) {
           if (value.isNotEmpty) {
             if (index < 5) FocusScope.of(context).requestFocus(_focusNodes[index + 1]);
-            else { _focusNodes[index].unfocus(); _verifyAndNavigate(); }
+            else {
+              _focusNodes[index].unfocus();
+              _verifyAndNavigate();
+            }
           } else if (value.isEmpty && index > 0) {
             FocusScope.of(context).requestFocus(_focusNodes[index - 1]);
           }
-          setState(() {}); 
         },
+      ),
+    );
+  }
+
+  Widget _buildVerifyButton(Color color, LanguageProvider lp) {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: isLoading ? null : _verifyAndNavigate,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 0,
+        ),
+        child: isLoading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : Text(
+          lp.getText('verify_btn'),
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }

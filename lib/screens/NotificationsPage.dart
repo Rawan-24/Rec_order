@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Import Provider
+import 'package:provider/provider.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -30,11 +31,52 @@ class _NotificationsPageState extends State<NotificationsPage> {
     'email': false,
   };
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announcePage();
+    });
+  }
+
+  void _announcePage() {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    String msg = lp.isRTL
+        ? "إعدادات التنبيهات. يمكنك قول 'تفعيل الكل' أو 'إيقاف الرسائل القصيرة'."
+        : "Notification settings. You can say 'Enable all' or 'Turn off SMS'.";
+    audio.speak(msg, lp.currentLanguage);
+  }
+
+  void _handleVoiceCommand(AppAudioProvider audio, LanguageProvider lp) {
+    audio.toggleListening(lp.currentLanguage, (words) {
+      String command = words.toLowerCase();
+      bool isEnable = !command.contains("off") && !command.contains("إيقاف") && !command.contains("تعطيل");
+
+      setState(() {
+        if (command.contains("all") || command.contains("الكل")) {
+          _settings['all'] = isEnable;
+          audio.speak(lp.isRTL ? "تم تحديث جميع التنبيهات" : "Updated all notifications", lp.currentLanguage);
+        } else if (command.contains("email") || command.contains("إيميل")) {
+          _settings['email'] = isEnable;
+          audio.speak(lp.isRTL ? "تحديث تنبيهات البريد" : "Email notifications updated", lp.currentLanguage);
+        } else if (command.contains("sms") || command.contains("رسائل")) {
+          _settings['sms'] = isEnable;
+          audio.speak(lp.isRTL ? "تحديث الرسائل القصيرة" : "SMS settings updated", lp.currentLanguage);
+        } else if (command.contains("offer") || command.contains("عرض")) {
+          _settings['special_offers'] = isEnable;
+          audio.speak(lp.isRTL ? "تم تحديث العروض" : "Offers updated", lp.currentLanguage);
+        }
+      });
+    });
+  }
+
   final Color primaryRed = const Color(0xFFD32F2F);
 
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
+    final audio = Provider.of<AppAudioProvider>(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
@@ -72,10 +114,20 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-                    child: const Icon(Icons.mic, color: Colors.white, size: 35),
+                  GestureDetector(
+                    onTap: () => _handleVoiceCommand(audio, lp),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                          color: audio.isListening ? Colors.green : Colors.white24,
+                          shape: BoxShape.circle
+                      ),
+                      child: Icon(
+                          audio.isListening ? Icons.graphic_eq : Icons.mic,
+                          color: Colors.white,
+                          size: 35
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -86,7 +138,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildVoiceHint(lp),
+                  _buildVoiceHint(lp, audio),
                   const SizedBox(height: 20),
                   _buildMainToggleCard(lp),
                   const SizedBox(height: 25),
@@ -134,7 +186,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  Widget _buildVoiceHint(LanguageProvider lp) {
+  Widget _buildVoiceHint(LanguageProvider lp, AppAudioProvider audio) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -144,16 +196,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.mic_none, color: Color(0xFF00796B), size: 20),
+          Icon(Icons.mic_none, color: audio.isListening ? Colors.green : const Color(0xFF00796B), size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(lp.getText('voice_cmd_header'), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                Text(
+                    audio.isListening ? "Listening..." : lp.getText('voice_cmd_header'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)
+                ),
                 const SizedBox(height: 4),
                 Text(
-                  lp.getText('voice_cmd_examples'),
+                  audio.isListening && audio.lastWords.isNotEmpty ? audio.lastWords : lp.getText('voice_cmd_examples'),
                   style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
                 ),
               ],

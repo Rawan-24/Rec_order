@@ -1,14 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:grad_project/DatabaseService.dart';
-import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/screens/RestaurantsScreen.dart';
-import 'package:grad_project/screens/profile.dart';
 import 'package:provider/provider.dart';
 
-import 'TrackOrderScreen.dart';
-import 'favorites.dart';
-import 'history.dart';
+// Your existing project imports
+import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/screens/RestaurantsScreen.dart';
+import 'package:grad_project/screens/profile.dart';
+import 'package:grad_project/screens/TrackOrderScreen.dart';
+import 'package:grad_project/screens/favorites.dart';
+import 'package:grad_project/screens/history.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,14 +20,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-    late LanguageProvider lp; // Declare it here
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // This runs whenever the context is ready or changes
-    lp = Provider.of<LanguageProvider>(context);
-  }
   int _selectedIndex = 0;
 
   final List<Widget> _pages = [
@@ -34,23 +28,16 @@ class _HomePageState extends State<HomePage> {
     const ProfilePage(),
   ];
 
-  void _onItemTapped(int index) async {
-    if (index == 1) { // If "Orders" tab is clicked
-      String? id = await DatabaseService().getActiveOrderId();
-      setState(() {
-        _selectedIndex = index;
-        // You might need to update your _pages list dynamically
-        // or pass the ID to a state variable.
-      });
-    } else {
-      setState(() {
-        _selectedIndex = index;
-      });
-    }
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final lp = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       body: _pages[_selectedIndex],
@@ -70,11 +57,11 @@ class _HomePageState extends State<HomePage> {
           ),
           BottomNavigationBarItem(
             icon: const Icon(Icons.inventory_2_outlined),
-            label:lp.getText('nav_orders'),
+            label: lp.getText('nav_orders'),
           ),
           BottomNavigationBarItem(
             icon: const Icon(Icons.person_outline),
-            label:lp.getText('nav_profile'),
+            label: lp.getText('nav_profile'),
           ),
         ],
       ),
@@ -82,16 +69,66 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class HomeContent extends StatelessWidget {
+class HomeContent extends StatefulWidget {
   const HomeContent({super.key});
 
+  @override
+  State<HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<HomeContent> {
+  @override
+  void initState() {
+    super.initState();
+    // Auto-greet the user when the page loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announceArrival();
+    });
+  }
+
+  void _announceArrival() {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    // Combining "Hello" and "What would you like to eat today?"
+    String msg = "${lp.getText('hello')}! ${lp.getText('home_subtitle')}";
+    audio.speak(msg, lp.currentLanguage);
+  }
+
+  void _handleVoiceInteraction(BuildContext context, AppAudioProvider audio, LanguageProvider lp) async {
+    await audio.toggleListening(lp.currentLanguage, (recognizedWords) async {
+      String command = recognizedWords.toLowerCase();
+
+      // Navigation Logic (English & Arabic)
+      if (command.contains("اطلب") || command.contains("مطعم") || command.contains("order")) {
+        audio.speak(lp.isRTL ? "حاضر، هفتحلك المطاعم" : "Opening restaurants", lp.currentLanguage);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const RestaurantsScreen()));
+      }
+      else if (command.contains("حسابي") || command.contains("بروفايل") || command.contains("profile")) {
+        audio.speak(lp.isRTL ? "فتحتلك صفحتك الشخصية" : "Opening your profile", lp.currentLanguage);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfilePage()));
+      }
+      else if (command.contains("تتبع") || command.contains("فين") || command.contains("track")) {
+        audio.speak(lp.isRTL ? "بنشوف طلبك فين" : "Checking your order status", lp.currentLanguage);
+        String? id = await DatabaseService().getActiveOrderId();
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: id ?? "")));
+        }
+      }
+      else if (command.contains("مفضل") || command.contains("favorite")) {
+        audio.speak(lp.isRTL ? "إليك مطاعمك المفضلة" : "Here are your favorites", lp.currentLanguage);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
+      }
+    });
+  }
+
   Widget buildQuickAction(
-    BuildContext context,
-    String text,
-    IconData icon,
-    Color iconBgColor,
-    VoidCallback onTap,
-  ) {
+      BuildContext context,
+      String text,
+      IconData icon,
+      Color iconBgColor,
+      VoidCallback onTap,
+      ) {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -122,11 +159,7 @@ class HomeContent extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 text,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black87,
-                ),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
           ),
@@ -137,7 +170,9 @@ class HomeContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-   final lp = Provider.of<LanguageProvider>(context);
+    final lp = Provider.of<LanguageProvider>(context);
+    final audio = Provider.of<AppAudioProvider>(context);
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -146,28 +181,25 @@ class HomeContent extends StatelessWidget {
           children: [
             const SizedBox(height: 40),
 
-            // --- DATABASE INTEGRATION: Fetching User Name ---
+            // --- GREETING SECTION ---
             StreamBuilder<DocumentSnapshot>(
               stream: DatabaseService().getUserDataStream(),
               builder: (context, snapshot) {
                 String displayName = "";
-
                 if (snapshot.hasData && snapshot.data!.exists) {
                   Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
                   displayName = data['name'] ?? "";
                 }
- String greeting = lp.getText('hello');
+                String fullGreeting = "${lp.getText('hello')} ${displayName.isEmpty ? '' : displayName}!".trim();
+
                 return Row(
-                  
                   children: [
-                    Text(
-                      displayName.isEmpty ? "$greeting !" : "$greeting $displayName!",
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Text(
+                        fullGreeting,
+                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     const Text("👋", style: TextStyle(fontSize: 24)),
                   ],
                 );
@@ -175,43 +207,50 @@ class HomeContent extends StatelessWidget {
             ),
 
             const SizedBox(height: 8),
-
             Text(
-             lp.getText('home_subtitle'),
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
+              lp.getText('home_subtitle'),
+              style: const TextStyle(fontSize: 16, color: Colors.black54),
             ),
 
             const Spacer(flex: 2),
 
+            // --- CENTRAL MICROPHONE ---
             Center(
               child: Column(
                 children: [
                   Text(
-                    lp.getText('tap_to_speak'),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Colors.black45,
+                    audio.isListening
+                        ? (lp.isRTL ? "أنا بسمعك..." : "Listening...")
+                        : lp.getText('tap_to_speak'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: audio.isListening ? const Color(0xFFEB1B33) : Colors.black45,
+                      fontWeight: audio.isListening ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
                   const SizedBox(height: 20),
-                  InkWell(
-                    onTap: () {
-                      // Logic for voice ordering can go here
-                    },
-                    child: Container(
-                      width: 80,
-                      height: 80,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEB1B33),
+                  GestureDetector(
+                    onTap: () => _handleVoiceInteraction(context, audio, lp),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      width: audio.isListening ? 100 : 80,
+                      height: audio.isListening ? 100 : 80,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEB1B33),
                         shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFEB1B33).withOpacity(0.4),
+                            blurRadius: audio.isListening ? 30 : 10,
+                            spreadRadius: audio.isListening ? 12 : 2,
+                          )
+                        ],
                       ),
-                      child: const Icon(
-                        Icons.mic,
+                      child: Icon(
+                        audio.isListening ? Icons.graphic_eq : Icons.mic,
                         color: Colors.white,
-                        size: 32,
+                        size: 35,
                       ),
                     ),
                   ),
@@ -223,62 +262,25 @@ class HomeContent extends StatelessWidget {
 
             Text(
               lp.getText('quick_actions'),
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
 
             const SizedBox(height: 16),
 
             Row(
               children: [
-                buildQuickAction(
-                  context,
-                  lp.getText('action_order'),
-                  Icons.restaurant,
-                  const Color(0xFFEB1B33),
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const RestaurantsScreen()),
-                    );
-                  },
-                ),
+                buildQuickAction(context, lp.getText('action_order'), Icons.restaurant, const Color(0xFFEB1B33), () {
+                  audio.speak(lp.isRTL ? "طلب الطعام" : "Let's order some food", lp.currentLanguage);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const RestaurantsScreen()));
+                }),
                 const SizedBox(width: 16),
-                buildQuickAction(
-                  context,
-                 lp.getText('action_track'),
-                  Icons.inventory_2,
-                  const Color(0xFFEB1B33),
-                      () async { // Added 'async' here
-                    // 1. Show a loading indicator
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) => const Center(
-                        child: CircularProgressIndicator(color: Color(0xFFEB1B33)),
-                      ),
-                    );
-
-                    // 2. Get the ID from your DatabaseService
-                    // Make sure this method exists in your DatabaseService.dart!
-                    String? id = await DatabaseService().getActiveOrderId();
-
-                    // 3. Remove the loading indicator
-                    if (context.mounted) Navigator.pop(context);
-
-                    // 4. Navigate with the actual ID
-                    if (context.mounted) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => TrackOrderScreen(orderId: id ?? ""),
-                        ),
-                      );
-                    }
-                  },
-                ),
+                buildQuickAction(context, lp.getText('action_track'), Icons.inventory_2, const Color(0xFFEB1B33), () async {
+                  audio.speak(lp.isRTL ? "بنشوف طلبك فين" : "Checking your order", lp.currentLanguage);
+                  String? id = await DatabaseService().getActiveOrderId();
+                  if (context.mounted) {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: id ?? "")));
+                  }
+                }),
               ],
             ),
 
@@ -286,34 +288,17 @@ class HomeContent extends StatelessWidget {
 
             Row(
               children: [
-                buildQuickAction(
-                  context,
-                 lp.getText('action_reorder'),
-                  Icons.history,
-                  const Color(0xFFEB1B33),
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const OrderHistoryPage()),
-                    );
-                  },
-                ),
+                buildQuickAction(context, lp.getText('action_reorder'), Icons.history, const Color(0xFFEB1B33), () {
+                  audio.speak(lp.isRTL ? "بفتح سجل الطلبات" : "Opening history", lp.currentLanguage);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
+                }),
                 const SizedBox(width: 16),
-                buildQuickAction(
-                  context,
-                 lp.getText('action_favorites'),
-                  Icons.favorite_border,
-                  const Color(0xFFEB1B33),
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const FavoritesPage()),
-                    );
-                  },
-                ),
+                buildQuickAction(context, lp.getText('action_favorites'), Icons.favorite_border, const Color(0xFFEB1B33), () {
+                  audio.speak(lp.isRTL ? "مطاعمك المفضلة" : "Your favorite restaurants", lp.currentLanguage);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
+                }),
               ],
             ),
-
             const SizedBox(height: 30),
           ],
         ),

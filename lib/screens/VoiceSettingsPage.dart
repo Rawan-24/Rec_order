@@ -1,12 +1,13 @@
-import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue, FirebaseFirestore;
+import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Standardized Provider
 import 'package:provider/provider.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 
 class VoiceSettingsPage extends StatefulWidget {
+  static const String routeName = "VoiceSettings";
   const VoiceSettingsPage({super.key});
 
   @override
@@ -14,8 +15,6 @@ class VoiceSettingsPage extends StatefulWidget {
 }
 
 class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
-  final FlutterTts tts = FlutterTts();
-  
   bool _voiceCommands = true;
   bool _voiceFeedback = true;
   bool _wakeWord = true;
@@ -25,7 +24,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   String _selectedSpeed = "1.0x Normal";
   String _selectedLanguage = "English (US)";
 
-  final Color primaryRed = const Color(0xFFD32F2F);
+  final Color primaryRed = const Color(0xFFEB1B33);
 
   @override
   void initState() {
@@ -33,17 +32,11 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     _loadSettingsFromServer();
   }
 
-  @override
-  void dispose() {
-    _saveToCloud(); 
-    super.dispose();
-  }
-
   Future<void> _loadSettingsFromServer() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       Map<String, dynamic>? settings = await DatabaseService().getUserVoiceSettings(user.uid);
-      
+
       if (settings != null && mounted) {
         setState(() {
           _selectedSpeed = settings['speed'] ?? "1.0x Normal";
@@ -55,34 +48,42 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           _autoListen = settings['autoListen'] ?? false;
           _voiceConfirmation = settings['voiceConfirmation'] ?? true;
         });
-        
-        // Ensure the Global Provider matches the server on load
-        final lp = Provider.of<LanguageProvider>(context, listen: false);
-        String code = _selectedLanguage.contains("Arabic") ? 'ar' : 'en';
-        if (lp.currentLanguage != code) {
-          lp.changeLanguage(code);
-        }
+
+        // Update local providers to match server data
+        _syncProviders();
       }
     }
   }
 
+  void _syncProviders() {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    String code = _selectedLanguage.contains("Arabic") ? 'ar' : 'en';
+    if (lp.currentLanguage != code) lp.changeLanguage(code);
+
+    // Apply speech rate and volume to the global audio provider
+    double rate = double.parse(_selectedSpeed.split('x')[0]);
+    audio.setSpeechRate(rate);
+    audio.setVolume(_volume / 100);
+  }
+
   Future<void> _handleLanguageChange(String selectedDisplayName) async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    setState(() {
-      _selectedLanguage = selectedDisplayName;
-    });
+    setState(() => _selectedLanguage = selectedDisplayName);
 
     String code = selectedDisplayName.contains("Arabic") ? 'ar' : 'en';
-    await lp.changeLanguage(code); // Uses the changeLanguage method from your provider
+    await lp.changeLanguage(code);
 
-    if (code == 'ar') {
-      await tts.setLanguage("ar-SA");
-    } else {
-      await tts.setLanguage("en-US");
-    }
+    // Give a voice confirmation of the language change
+    await audio.speak(
+        code == 'ar' ? "تم تغيير اللغة إلى العربية" : "Language changed to English",
+        lp.currentLanguage
+    );
 
-    await _saveToCloud();
+    _saveToCloud();
   }
 
   Future<void> _saveToCloud() async {
@@ -103,9 +104,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to sync settings")),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sync failed")));
       }
     }
   }
@@ -115,20 +114,29 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     final lp = Provider.of<LanguageProvider>(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF4EDE4), // Standard app cream background
+      appBar: AppBar(
+        backgroundColor: primaryRed,
+        elevation: 0,
+        title: Text(lp.getText('voice_settings_title'), style: const TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadSettingsFromServer),
+        ],
+      ),
       body: SingleChildScrollView(
         child: Column(
           children: [
-            _buildHeader(lp),
+            _buildVisualHeader(),
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildVoiceHint(lp),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 25),
                   _buildMainVoiceToggle(lp),
                   const SizedBox(height: 25),
+
                   _buildSectionHeader(Icons.settings_voice, lp.getText('voice_features_header')),
                   _buildSettingsGroup([
                     _buildToggleTile(lp.getText('voice_feedback_title'), lp.getText('voice_feedback_sub'), _voiceFeedback, (v) {
@@ -138,26 +146,20 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
                     _buildToggleTile(lp.getText('wake_word_title'), lp.getText('wake_word_sub'), _wakeWord, (v) {
                       setState(() => _wakeWord = v);
                       _saveToCloud();
-                    }, Icons.bolt),
-                    _buildToggleTile(lp.getText('auto_listen_title'), lp.getText('auto_listen_sub'), _autoListen, (v) {
-                      setState(() => _autoListen = v);
-                      _saveToCloud();
-                    }, Icons.mic_none),
-                    _buildToggleTile(lp.getText('voice_conf_title'), lp.getText('voice_conf_sub'), _voiceConfirmation, (v) {
-                      setState(() => _voiceConfirmation = v);
-                      _saveToCloud();
-                    }, Icons.info_outline),
+                    }, Icons.record_voice_over),
                   ]),
+
                   const SizedBox(height: 25),
                   _buildSectionHeader(Icons.speed, lp.getText('speech_speed_header')),
                   _buildSpeedSelector(),
+
                   const SizedBox(height: 25),
                   _buildSectionHeader(Icons.volume_up, lp.getText('voice_volume_header')),
                   _buildVolumeSlider(lp),
+
                   const SizedBox(height: 25),
                   _buildSectionHeader(Icons.translate, lp.getText('voice_lang_header')),
                   _buildLanguageSelector(),
-                  const SizedBox(height: 40),
                 ],
               ),
             ),
@@ -167,34 +169,15 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildHeader(LanguageProvider lp) {
+  Widget _buildVisualHeader() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.only(top: 60, bottom: 30),
+      height: 120, width: double.infinity,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [const Color(0xFFB71C1C), primaryRed],
-        ),
+        color: primaryRed,
+        borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)),
       ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
-              Text(lp.getText('voice_settings_title'), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-              IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: _loadSettingsFromServer),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-            child: const Icon(Icons.mic, color: Colors.white, size: 35),
-          ),
-        ],
+      child: const Center(
+        child: Icon(Icons.mic, color: Colors.white, size: 60),
       ),
     );
   }
@@ -202,12 +185,12 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   Widget _buildVoiceHint(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(15)),
+      decoration: BoxDecoration(color: primaryRed.withOpacity(0.1), borderRadius: BorderRadius.circular(15)),
       child: Row(
         children: [
-          const Icon(Icons.mic_none, color: Color(0xFFD32F2F), size: 20),
+          Icon(Icons.lightbulb_outline, color: primaryRed, size: 24),
           const SizedBox(width: 12),
-          Expanded(child: Text(lp.getText('voice_hint_text'), style: const TextStyle(color: Colors.black54, fontSize: 13))),
+          Expanded(child: Text(lp.getText('voice_hint_text'), style: const TextStyle(color: Colors.black87, fontSize: 13))),
         ],
       ),
     );
@@ -216,18 +199,22 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   Widget _buildMainVoiceToggle(LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+      ),
       child: Row(
         children: [
-          CircleAvatar(backgroundColor: Colors.red[50], child: Icon(Icons.mic, color: primaryRed)),
+          CircleAvatar(backgroundColor: primaryRed.withOpacity(0.1), child: Icon(Icons.mic, color: primaryRed)),
           const SizedBox(width: 15),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(lp.getText('voice_commands_main'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-              Text(lp.getText('voice_status_active'), style: const TextStyle(color: Colors.grey, fontSize: 14)),
+              Text(_voiceCommands ? lp.getText('voice_status_active') : "Disabled", style: const TextStyle(color: Colors.grey, fontSize: 14)),
             ]),
           ),
-          Switch(value: _voiceCommands, activeThumbColor: primaryRed, onChanged: (v) {
+          Switch(value: _voiceCommands, activeColor: primaryRed, onChanged: (v) {
             setState(() => _voiceCommands = v);
             _saveToCloud();
           }),
@@ -238,64 +225,80 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
 
   Widget _buildSettingsGroup(List<Widget> children) {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5)]
+      ),
       child: Column(children: children),
     );
   }
 
   Widget _buildToggleTile(String title, String sub, bool val, Function(bool) onChanged, IconData icon) {
     return ListTile(
-      leading: Icon(icon, color: Colors.black45),
+      leading: Icon(icon, color: Colors.black54),
       title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
       subtitle: Text(sub, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       trailing: Switch(
         value: val,
         onChanged: _voiceCommands ? onChanged : null,
-        activeThumbColor: primaryRed,
+        activeColor: primaryRed,
       ),
     );
   }
 
   Widget _buildSpeedSelector() {
-    List<String> speeds = ["0.5x Slow", "0.75x", "1.0x Normal", "1.25x", "1.5x Fast", "2.0x"];
+    List<String> speeds = ["0.5x", "0.75x", "1.0x Normal", "1.25x", "1.5x", "2.0x"];
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
       child: Wrap(
-        spacing: 10, runSpacing: 10,
+        spacing: 8, runSpacing: 8,
         children: speeds.map((s) => ChoiceChip(
           label: Text(s),
           selected: _selectedSpeed == s,
           onSelected: (selected) {
             if (selected) {
               setState(() => _selectedSpeed = s);
+              double rate = double.parse(s.split('x')[0]);
+              audio.setSpeechRate(rate);
               _saveToCloud();
             }
           },
           selectedColor: primaryRed,
-          labelStyle: TextStyle(color: _selectedSpeed == s ? Colors.white : Colors.black),
+          labelStyle: TextStyle(color: _selectedSpeed == s ? Colors.white : Colors.black87),
         )).toList(),
       ),
     );
   }
 
   Widget _buildVolumeSlider(LanguageProvider lp) {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
       child: Column(
         children: [
           Slider(
             value: _volume, min: 0, max: 100,
-            activeColor: primaryRed, inactiveColor: Colors.red[100],
+            activeColor: primaryRed, inactiveColor: primaryRed.withOpacity(0.2),
             onChanged: (v) => setState(() => _volume = v),
-            onChangeEnd: (v) => _saveToCloud(),
+            onChangeEnd: (v) {
+              audio.setVolume(v / 100);
+              _saveToCloud();
+            },
           ),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(lp.getText('vol_silent'), style: const TextStyle(color: Colors.grey)),
-            Text("${_volume.round()}%", style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
-            Text(lp.getText('vol_loud'), style: const TextStyle(color: Colors.grey)),
-          ])
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text(lp.getText('vol_silent'), style: const TextStyle(color: Colors.grey)),
+              Text("${_volume.round()}%", style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
+              Text(lp.getText('vol_loud'), style: const TextStyle(color: Colors.grey)),
+            ]),
+          )
         ],
       ),
     );
@@ -304,20 +307,15 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   Widget _buildLanguageSelector() {
     List<String> langs = ["English (US)", "Arabic (EG)"];
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white, 
-        borderRadius: BorderRadius.circular(15)
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
       child: Column(
         children: langs.map((l) => RadioListTile(
-          title: Text(l), 
-          value: l, 
-          groupValue: _selectedLanguage, 
+          title: Text(l),
+          value: l,
+          groupValue: _selectedLanguage,
           activeColor: primaryRed,
           onChanged: (v) {
-            if (v != null) {
-              _handleLanguageChange(v.toString());
-            }
+            if (v != null) _handleLanguageChange(v.toString());
           },
         )).toList(),
       ),

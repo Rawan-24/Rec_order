@@ -6,10 +6,10 @@ import 'package:grad_project/screens/Menu.dart';
 import 'package:grad_project/screens/RestaurantCard.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Ensure this is imported
 
 class RestaurantsScreen extends StatefulWidget {
   static const String routeName = "RestaurantsScreen";
-
   const RestaurantsScreen({super.key});
 
   @override
@@ -24,15 +24,53 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
   void initState() {
     super.initState();
     _checkAndSeedData();
+    // Announce the screen when it opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announceRestaurantsScreen();
+    });
   }
 
   Future<void> _checkAndSeedData() async {
     try {
       await _dbService.uploadMockData(RestaurantData.restaurants);
-      print("Database seeded successfully");
     } catch (e) {
-      print("Error seeding data: $e");
+      debugPrint("Error seeding data: $e");
     }
+  }
+
+  // FIXED: Added voice announcement for the screen
+  void _announceRestaurantsScreen() async {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    await audio.stop(); // Clear any audio from the Home/Splash screen
+
+    if (lp.isRTL) {
+      await audio.speak("قائمة المطاعم.", "ar-EG");
+      await Future.delayed(const Duration(milliseconds: 300));
+      await audio.speak("يمكنك الفرز حسب التقييم أو المسافة بالصوت.", "ar-EG");
+    } else {
+      await audio.speak("Restaurant list. You can sort by rating or distance using your voice.", "en-US");
+    }
+  }
+
+  void _handleVoiceFilter(AppAudioProvider audio, LanguageProvider lp) {
+    audio.toggleListening(lp.currentLanguage, (words) async {
+      String command = words.toLowerCase();
+
+      if (command.contains("rating") || command.contains("تقييم") || command.contains("الاعلى")) {
+        _applyFilter('rating');
+        await audio.speak(lp.isRTL ? "تم الترتيب حسب التقييم" : "Sorting by rating", lp.currentLanguage);
+      }
+      else if (command.contains("distance") || command.contains("مسافة") || command.contains("قريب")) {
+        _applyFilter('distance');
+        await audio.speak(lp.isRTL ? "تم الترتيب حسب الأقرب" : "Sorting by distance", lp.currentLanguage);
+      }
+      else if (command.contains("reset") || command.contains("اعادة") || command.contains("افتراضي")) {
+        _applyFilter('reset');
+        await audio.speak(lp.isRTL ? "تمت إعادة الضبط" : "Filters reset", lp.currentLanguage);
+      }
+    });
   }
 
   void _applyFilter(String criteria) {
@@ -44,6 +82,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
+    final audio = Provider.of<AppAudioProvider>(context);
     const primaryRed = Color(0xFFEB1B33);
 
     return Scaffold(
@@ -52,7 +91,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -72,48 +111,25 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           ),
         ],
       ),
+      // Updated FAB to handle listening state and color
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(top: 70),
         child: FloatingActionButton(
-          backgroundColor: primaryRed,
-          onPressed: () {},
-          child: const Icon(Icons.mic, color: Colors.white),
+          backgroundColor: audio.isListening ? Colors.green : primaryRed,
+          onPressed: () => _handleVoiceFilter(audio, lp),
+          child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerTop,
       body: Column(
         children: [
           const SizedBox(height: 70),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.teal[50],
-                borderRadius: BorderRadius.circular(25),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.mic, color: Colors.black),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      lp.getText('restaurants_voice_hint'),
-                      style: const TextStyle(color: Color(0xFF616161)),
-                    ),
-                  )
-                ],
-              ),
-            ),
-          ),
+          _buildVoiceHintBar(audio, lp),
           const SizedBox(height: 10),
           Expanded(
             child: StreamBuilder<List<Restaurant>>(
               stream: _dbService.getRestaurantsStream(),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text("${lp.getText('error_loading')}: ${snapshot.error}"));
-                }
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator(color: primaryRed));
                 }
@@ -135,10 +151,6 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
                   });
                 }
 
-                if (restaurants.isEmpty) {
-                  return Center(child: Text(lp.getText('no_restaurants_found')));
-                }
-
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: restaurants.length,
@@ -147,7 +159,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
                     return RestaurantCard(
                       name: restaurant.name,
                       rating: restaurant.rating,
-                      distance: restaurant.distance, // Ensure distance string is localized in DB if needed
+                      distance: restaurant.distance,
                       image: restaurant.image,
                       onTap: () {
                         Navigator.push(
@@ -164,6 +176,33 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVoiceHintBar(AppAudioProvider audio, LanguageProvider lp) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFD6E0E0),
+          borderRadius: BorderRadius.circular(25),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.teal),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                audio.isListening && audio.lastWords.isNotEmpty
+                    ? audio.lastWords
+                    : lp.getText('restaurants_voice_hint'),
+                style: const TextStyle(color: Colors.black54, fontSize: 13),
+              ),
+            )
+          ],
+        ),
       ),
     );
   }

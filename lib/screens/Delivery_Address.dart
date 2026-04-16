@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/Models/AddressModel.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart';
 import 'package:provider/provider.dart';
-//Done
+
 class DeliveryAddressesPage extends StatefulWidget {
   const DeliveryAddressesPage({super.key});
 
@@ -13,18 +14,49 @@ class DeliveryAddressesPage extends StatefulWidget {
 }
 
 class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
- late LanguageProvider lp; // Declare it here
+  late LanguageProvider lp;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-announce page function on load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announcePage();
+    });
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // This runs whenever the context is ready or changes
     lp = Provider.of<LanguageProvider>(context);
   }
+
+  void _announcePage() {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    String msg = lp.isRTL
+        ? "عناوين التوصيل. اضغط مطولاً على زر الإضافة للتحدث."
+        : "Delivery addresses. Long press the add button to use voice commands.";
+    audio.speak(msg, lp.currentLanguage);
+  }
+
+  void _handleVoiceInteraction(AppAudioProvider audio) {
+    audio.toggleListening(lp.currentLanguage, (words) {
+      String command = words.toLowerCase();
+
+      if (command.contains("إضافة") || command.contains("add")) {
+        audio.speak(lp.isRTL ? "فتحت لك إضافة عنوان" : "Opening add address", lp.currentLanguage);
+        _showAddAddressDialog(context);
+      } else if (command.contains("ارجع") || command.contains("back")) {
+        Navigator.pop(context);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     const primaryRed = Color(0xFFD32F2F);
+    final audio = Provider.of<AppAudioProvider>(context);
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -34,36 +66,40 @@ class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      // Floating Action Button to add new address
-     floatingActionButton: FloatingActionButton(
-  onPressed: () => _showAddAddressDialog(context), // Logic connected here
-  backgroundColor: const Color(0xFFD32F2F),
-  child: const Icon(Icons.add, color: Colors.white),
-),
-    body: StreamBuilder<List<AddressModel>>(
-      stream: DatabaseService().getAddresses(userId!),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text(lp.getText('error_something_wrong')));
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+      // Wrapped in GestureDetector to fix the 'onLongPress' error
+      floatingActionButton: GestureDetector(
+        onLongPress: () => _handleVoiceInteraction(audio),
+        child: FloatingActionButton(
+          onPressed: () => _showAddAddressDialog(context),
+          backgroundColor: audio.isListening ? Colors.green : primaryRed,
+          child: Icon(audio.isListening ? Icons.graphic_eq : Icons.add, color: Colors.white),
+        ),
+      ),
+      body: userId == null
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<List<AddressModel>>(
+        stream: DatabaseService().getAddresses(userId),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return Center(child: Text(lp.getText('error_something_wrong')));
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
-        final addresses = snapshot.data ?? [];
+          final addresses = snapshot.data ?? [];
+          if (addresses.isEmpty) return Center(child: Text(lp.getText('no_addresses')));
 
-        if (addresses.isEmpty) return Center(child: Text(lp.getText('no_addresses')));
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: addresses.length,
-          itemBuilder: (context, index) {
-            final item = addresses[index];
-            return _buildAddressCard(item, const Color(0xFFD32F2F), userId);
-          },
-        );
-      },
-    ),
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: addresses.length,
+            itemBuilder: (context, index) {
+              final item = addresses[index];
+              return _buildAddressCard(item, primaryRed, userId, audio);
+            },
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildAddressCard(AddressModel item, Color accent, String userId) {
+  Widget _buildAddressCard(AddressModel item, Color accent, String userId, AppAudioProvider audio) {
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 16),
@@ -71,225 +107,170 @@ class _DeliveryAddressesPageState extends State<DeliveryAddressesPage> {
         borderRadius: BorderRadius.circular(15),
         side: BorderSide(color: item.isDefault ? accent : Colors.grey[200]!, width: item.isDefault ? 2 : 1),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
+      child: InkWell(
+        onTap: () {
+          String details = lp.isRTL ? "عنوان ${item.label}: ${item.address}" : "${item.label} address: ${item.address}";
+          audio.speak(details, lp.currentLanguage);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: accent.withOpacity(0.1), shape: BoxShape.circle),
+                    child: Icon(item.icon, color: accent, size: 24),
+                  ),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(item.label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            if (item.isDefault)
+                              Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(4)),
+                                child: Text(lp.getText('default_tag'), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(item.address, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _showAddAddressDialog(context, existingAddress: item),
+                    icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
+                    label: Text(lp.getText('edit'), style: const TextStyle(color: Colors.blueGrey)),
+                  ),
+                  const SizedBox(width: 10),
+                  TextButton.icon(
+                    onPressed: () async {
+                      audio.speak(lp.isRTL ? "تم حذف العنوان" : "Address deleted", lp.currentLanguage);
+                      await DatabaseService().deleteAddress(userId, item.id);
+                    },
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    label: Text(lp.getText('delete'), style: const TextStyle(color: Colors.red)),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAddAddressDialog(BuildContext context, {AddressModel? existingAddress}) {
+    final labelController = TextEditingController(text: existingAddress?.label ?? "");
+    final addressController = TextEditingController(text: existingAddress?.address ?? "");
+    String selectedIconType = existingAddress?.iconType ?? 'home';
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    bool isEditing = existingAddress != null;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(isEditing ? lp.getText('edit_address') : lp.getText('add_new_address')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: accent.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(item.icon, color: accent, size: 24),
-                ),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            item.label,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                          if (item.isDefault)
-                            Container(
-                              margin: const EdgeInsets.only(left: 8),          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: accent,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                              lp.getText('default_tag'),
-                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        item.address,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ),
+                _buildDialogField(lp.getText('label'), lp.getText('label_hint'), labelController),
+                const SizedBox(height: 15),
+                _buildDialogField(lp.getText('address_field'), lp.getText('address_hint'), addressController, maxLines: 2),
+                const SizedBox(height: 20),
+                Text(lp.getText('select_icon'), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _iconWithLabel(Icons.home_outlined, 'home', selectedIconType, lp.getText('home_label'), (type) => setDialogState(() => selectedIconType = type)),
+                    _iconWithLabel(Icons.work_outline, 'work', selectedIconType, lp.getText('work_label'), (type) => setDialogState(() => selectedIconType = type)),
+                    _iconWithLabel(Icons.location_on_outlined, 'other', selectedIconType, lp.getText('other_label'), (type) => setDialogState(() => selectedIconType = type)),
+                  ],
+                )
               ],
             ),
-            const Divider(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-             TextButton.icon(
-  onPressed: () {
-    // Pass the current 'item' (AddressModel) to the dialog
-    _showAddAddressDialog(context, existingAddress: item); 
-  },
-  icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
-  label: Text(lp.getText('edit'), style: const TextStyle(color: Colors.blueGrey)),
-),
-                const SizedBox(width: 10),
-                TextButton.icon(
-              onPressed: () => DatabaseService().deleteAddress(userId, item.id),
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
-              label: Text(lp.getText('delete'), style: const TextStyle(color: Colors.red)),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: Text(lp.getText('cancel'))),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD32F2F)),
+              onPressed: () async {
+                if (labelController.text.isNotEmpty && addressController.text.isNotEmpty) {
+                  final addressData = AddressModel(
+                    id: isEditing ? existingAddress.id : '',
+                    label: labelController.text,
+                    address: addressController.text,
+                    iconType: selectedIconType,
+                  );
+
+                  if (isEditing) {
+                    await DatabaseService().updateAddress(userId!, addressData);
+                    audio.speak(lp.isRTL ? "تم تحديث العنوان" : "Address updated", lp.currentLanguage);
+                  } else {
+                    await DatabaseService().addAddress(userId!, addressData);
+                    audio.speak(lp.isRTL ? "تم حفظ العنوان" : "Address saved", lp.currentLanguage);
+                  }
+                  if (context.mounted) Navigator.pop(context);
+                }
+              },
+              child: Text(isEditing ? lp.getText('update_address') : lp.getText('save_address'), style: const TextStyle(color: Colors.white)),
             ),
-              ],
-            )
           ],
         ),
       ),
     );
   }
 
-void _showAddAddressDialog(BuildContext context,{AddressModel? existingAddress}) {
-  final labelController = TextEditingController();
-  final addressController = TextEditingController();
-  String selectedIconType = 'home'; // Default selection
-  final userId = FirebaseAuth.instance.currentUser?.uid;
-bool isEditing = existingAddress != null;
-  showDialog(
-    context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(isEditing ?lp.getText('edit_address') : lp.getText('add_new_address')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildDialogField(lp.getText('label'), lp.getText('label_hint'), labelController),
-              const SizedBox(height: 15),
-              _buildDialogField(lp.getText('address_field'), lp.getText('address_hint'), addressController, maxLines: 2),
-              const SizedBox(height: 20),
-              Text(lp.getText('select_icon'), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-              const SizedBox(height: 10),
-              
-              // Icon Selection Row
-            Row(
-  mainAxisAlignment: MainAxisAlignment.spaceAround,
-  children: [
-    // Home Icon
-    Column(
-      mainAxisSize: MainAxisSize.min,
+  Widget _iconWithLabel(IconData icon, String type, String current, String label, Function(String) onSelect) {
+    bool isSelected = type == current;
+    return Column(
       children: [
-        _iconPicker(Icons.home_outlined, 'home', selectedIconType, (type) {
-          setDialogState(() => selectedIconType = type);
-        }),
-        const SizedBox(height: 4),
-        Text(lp.getText('home_label'), style: TextStyle(fontSize: 12, color: selectedIconType == 'home' ? const Color(0xFFD32F2F) : Colors.grey)),
-      ],
-    ),
-
-    // Work Icon
-    Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _iconPicker(Icons.work_outline, 'work', selectedIconType, (type) {
-          setDialogState(() => selectedIconType = type);
-        }),
-        const SizedBox(height: 4),
-        Text(lp.getText('work_label'), style: TextStyle(fontSize: 12, color: selectedIconType == 'work' ? const Color(0xFFD32F2F) : Colors.grey)),
-      ],
-    ),
-
-    // Other Icon
-    Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _iconPicker(Icons.location_on_outlined, 'other', selectedIconType, (type) {
-          setDialogState(() => selectedIconType = type);
-        }),
-        const SizedBox(height: 4),
-        Text(lp.getText('other_label'), style: TextStyle(fontSize: 12, color: selectedIconType == 'other' ? const Color(0xFFD32F2F) : Colors.grey)),
-      ],
-    ),
-  ],
-)
-            ],
+        GestureDetector(
+          onTap: () => onSelect(type),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFFD32F2F).withOpacity(0.1) : Colors.transparent,
+              border: Border.all(color: isSelected ? const Color(0xFFD32F2F) : Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: isSelected ? const Color(0xFFD32F2F) : Colors.grey),
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(lp.getText('cancel'))),
-      ElevatedButton(
-  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD32F2F)),
-  onPressed: () async {
-    // 1. Basic Validation: Don't save if fields are empty
-    if (labelController.text.isNotEmpty && addressController.text.isNotEmpty) {
-      
-      // 2. Create the data object
-      final addressData = AddressModel(
-        id: isEditing ? existingAddress.id : '', // Use existing ID if editing
-        label: labelController.text,
-        address: addressController.text,
-        iconType: selectedIconType,
-      );
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontSize: 12, color: isSelected ? const Color(0xFFD32F2F) : Colors.grey)),
+      ],
+    );
+  }
 
-      // 3. Choose the Database Operation
-      if (isEditing) {
-        // Calls the update method
-        await DatabaseService().updateAddress(userId!, addressData);
-      } else {
-        // Calls the add method
-        await DatabaseService().addAddress(userId!, addressData);
-      }
-
-      // 4. Close the dialog
-      Navigator.pop(context);
-      
-      // Optional: Show a success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEditing ? lp.getText('update_address') : lp.getText('save_address'),))
-      );
-    } else {
-      // Show error if fields are empty
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(lp.getText('error_fill_fields')))
-      );
-    }
-  },
-  child: Text(
-    isEditing ? lp.getText('update_address') : lp.getText('save_address'), 
-    style: const TextStyle(color: Colors.white),
-  ),
-),
-        ],
+  Widget _buildDialogField(String label, String hint, TextEditingController controller, {int maxLines = 1}) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       ),
-    ),
-  );
-}
-
-Widget _buildDialogField(String label, String hint, TextEditingController controller, {int maxLines = 1}) {
-  return TextField(
-    controller: controller,
-    maxLines: maxLines,
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: hint,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-    ),
-  );
-}
-
-Widget _iconPicker(IconData icon, String type, String current, Function(String) onSelect) {
-  bool isSelected = type == current;
-  return GestureDetector(
-    onTap: () => onSelect(type),
-    child: Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFFD32F2F).withOpacity(0.1) : Colors.transparent,
-        border: Border.all(color: isSelected ? const Color(0xFFD32F2F) : Colors.grey[300]!),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Icon(icon, color: isSelected ? const Color(0xFFD32F2F) : Colors.grey),
-    ),
-  );
-}
-
-
+    );
+  }
 }

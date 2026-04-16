@@ -14,12 +14,14 @@ import 'package:grad_project/screens/CartScreen.dart';
 import 'package:grad_project/screens/PaymentScreen.dart';
 import 'package:grad_project/screens/RestaurantsScreen.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
-import 'package:grad_project/providers/LanguageProvider.dart'; 
+import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Audio Provider Import
 import 'package:provider/provider.dart';
 import 'connectivity_wrapper.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 Future<void> main() async {
+  // Required for Firebase and Plugin initialization
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
@@ -29,8 +31,14 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        // 1. Manages the Shopping Cart
         ChangeNotifierProvider(create: (_) => CartProvider()),
+
+        // 2. Manages UI Language (English / Arabic)
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
+
+        // 3. Manages Global Voice (TTS/STT) in Egyptian/English
+        ChangeNotifierProvider(create: (_) => AppAudioProvider()),
       ],
       child: const MyApp(),
     ),
@@ -42,13 +50,17 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use Consumer to listen for language changes
+    // We use Consumer<LanguageProvider> to rebuild the app instantly
+    // when the user switches between Arabic and English
     return Consumer<LanguageProvider>(
       builder: (context, lp, child) {
         return MaterialApp(
-          // This line automatically handles LTR/RTL for the whole app
+          // Sets the locale (LTR or RTL) based on the LanguageProvider
           locale: Locale(lp.currentLanguage),
-          supportedLocales: const [Locale('en'), Locale('ar')],
+          supportedLocales: const [
+            Locale('en'),
+            Locale('ar')
+          ],
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -59,7 +71,7 @@ class MyApp extends StatelessWidget {
             primaryColor: const Color(0xFF4169E1),
             fontFamily: 'Poppins',
           ),
-          // Only use the builder for Connectivity, NOT for Directionality
+          // Wraps the entire app in a Connectivity check
           builder: (context, widget) {
             return ConnectivityWrapper(child: widget!);
           },
@@ -70,18 +82,12 @@ class MyApp extends StatelessWidget {
             "/signin": (context) => const SignInScreen(),
             "/SignUp": (context) => const SignUpPage(),
             '/home': (context) => const HomePage(),
-            '/CartScreen': (context) => const CartScreen(),
-            '/RestaurantsScreen': (context) => const RestaurantsScreen(),
             '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: ''),
             '/PaymentScreen': (context) => const PaymentScreen(),
             '/tutorial1': (context) => const VoiceOnboardingScreen(),
-            '/verfiy': (context) => const VerificationScreen(),
-            'profile': (context) => const ProfilePage(),
           },
         );
       },
     );
   }
-
-
 }

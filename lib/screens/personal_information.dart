@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Import Provider
 
 class PersonalInformationPage extends StatefulWidget {
   const PersonalInformationPage({super.key});
@@ -23,6 +24,43 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
   void initState() {
     super.initState();
     _fetchUserData();
+    // Announce the page goal
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announcePage();
+    });
+  }
+
+  void _announcePage() {
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    String msg = lp.isRTL
+        ? "معلوماتك الشخصية. يمكنك قول 'تغيير الاسم' أو 'حفظ الملف الشخصي'."
+        : "Your personal information. You can say 'Change name' or 'Save profile'.";
+    audio.speak(msg, lp.currentLanguage);
+  }
+
+  void _handleVoiceInput(AppAudioProvider audio, LanguageProvider lp) {
+    audio.toggleListening(lp.currentLanguage, (words) {
+      String command = words.toLowerCase();
+
+      // Logic for updating specific fields via voice
+      if (command.contains("name") || command.contains("اسم")) {
+        String newName = words.split(RegExp(r'name|اسم')).last.trim();
+        if (newName.isNotEmpty) {
+          setState(() => _nameController.text = newName);
+          audio.speak(lp.isRTL ? "تم تحديث الاسم" : "Name updated", lp.currentLanguage);
+        }
+      } else if (command.contains("phone") || command.contains("هاتف") || command.contains("موبايل")) {
+        // Simple regex to extract numbers
+        String newPhone = words.replaceAll(RegExp(r'[^0-9]'), '');
+        if (newPhone.isNotEmpty) {
+          setState(() => _phoneController.text = newPhone);
+          audio.speak(lp.isRTL ? "تم تحديث الهاتف" : "Phone updated", lp.currentLanguage);
+        }
+      } else if (command.contains("save") || command.contains("حفظ")) {
+        _updateProfile(lp);
+      }
+    });
   }
 
   Future<void> _fetchUserData() async {
@@ -52,6 +90,8 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
 
   Future<void> _updateProfile(LanguageProvider lp) async {
     setState(() => _isLoading = true);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
     try {
       await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({
         'name': _nameController.text.trim(),
@@ -59,21 +99,17 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
         'phone': _phoneController.text.trim(),
       });
 
+      audio.speak(lp.getText('profile_update_success'), lp.currentLanguage);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(lp.getText('profile_update_success')), 
-            backgroundColor: Colors.green
-          ),
+          SnackBar(content: Text(lp.getText('profile_update_success')), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("${lp.getText('profile_update_fail')}: $e"), 
-            backgroundColor: Colors.red
-          ),
+          SnackBar(content: Text("${lp.getText('profile_update_fail')}: $e"), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -101,6 +137,7 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
+    final audio = Provider.of<AppAudioProvider>(context);
     const primaryRed = Color(0xFFD32F2F);
 
     return Scaffold(
@@ -120,48 +157,65 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: primaryRed))
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  Center(
-                    child: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 50,
-                          backgroundColor: primaryRed.withOpacity(0.1),
-                          child: Text(
-                            _getInitials(_nameController.text),
-                            style: const TextStyle(fontSize: 32, color: primaryRed, fontWeight: FontWeight.bold),
-                          ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const SizedBox(height: 20),
+            Center(
+              child: GestureDetector(
+                onTap: () => _handleVoiceInput(audio, lp),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: 55,
+                      backgroundColor: audio.isListening ? Colors.green : primaryRed,
+                      child: CircleAvatar(
+                        radius: 50,
+                        backgroundColor: Colors.white,
+                        child: Text(
+                          _getInitials(_nameController.text),
+                          style: const TextStyle(fontSize: 32, color: primaryRed, fontWeight: FontWeight.bold),
                         ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(color: primaryRed, shape: BoxShape.circle),
-                            child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 40),
-                  _buildEditField(lp.getText('full_name_label'), _nameController, Icons.person_outline),
-                  const SizedBox(height: 20),
-                  _buildEditField(lp.getText('email_label'), _emailController, Icons.email_outlined),
-                  const SizedBox(height: 20),
-                  _buildEditField(lp.getText('phone_label'), _phoneController, Icons.phone_android_outlined),
-                  const SizedBox(height: 40),
-                  Text(
-                    lp.getText('data_protection_note'),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
-                ],
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(color: primaryRed, shape: BoxShape.circle),
+                        child: Icon(
+                            audio.isListening ? Icons.graphic_eq : Icons.mic,
+                            color: Colors.white,
+                            size: 20
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+            const SizedBox(height: 10),
+            Text(
+              audio.isListening ? "Listening..." : "Tap avatar to use voice",
+              style: TextStyle(color: audio.isListening ? Colors.green : Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 30),
+            _buildEditField(lp.getText('full_name_label'), _nameController, Icons.person_outline),
+            const SizedBox(height: 20),
+            _buildEditField(lp.getText('email_label'), _emailController, Icons.email_outlined),
+            const SizedBox(height: 20),
+            _buildEditField(lp.getText('phone_label'), _phoneController, Icons.phone_android_outlined),
+            const SizedBox(height: 40),
+            Text(
+              lp.getText('data_protection_note'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

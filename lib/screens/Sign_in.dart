@@ -1,12 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Standardized Provider
 
 class SignInScreen extends StatefulWidget {
+  static const String routeName = "SignInScreen";
   const SignInScreen({super.key});
 
   @override
@@ -17,37 +18,48 @@ class _SignInScreenState extends State<SignInScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController phoneController = TextEditingController();
   bool isLoading = false;
-  final FlutterTts tts = FlutterTts();
   bool staySignedIn = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      speakInstructions();
+      _announceSignIn();
     });
   }
 
-  Future speakInstructions() async {
-    // Access provider safely with listen: false inside a function
+  // FIXED: Using AppAudioProvider for synchronized speech
+  void _announceSignIn() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
-    
-    // This line uses the 'isEnglish' getter we added to the provider
-    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
-    await tts.speak(lp.getText('signin_voice_instructions'));
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    await audio.stop(); // Clear any previous audio
+
+    if (lp.isRTL) {
+      await audio.speak("أهلاً بك في تطبيق سي أند سيرف.", "ar-EG");
+      await Future.delayed(const Duration(milliseconds: 300));
+      await audio.speak("من فضلك أدخل رقم هاتفك لتسجيل الدخول.", "ar-EG");
+    } else {
+      await audio.speak("Welcome to Say and Serve. Please enter your phone number to sign in.", "en-US");
+    }
   }
 
   void signIn() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
     if (!_formKey.currentState!.validate()) {
-      tts.speak(lp.getText('error_invalid_phone_tts'));
+      await audio.speak(lp.isRTL ? "رقم الهاتف غير صحيح" : "Invalid phone number", lp.currentLanguage);
       return;
     }
 
     setState(() { isLoading = true; });
 
     String phone = phoneController.text.trim();
+    // Ensure international format for Firebase if the user forgets the '+'
+    if (!phone.startsWith('+')) {
+      phone = "+20$phone"; // Defaulting to Egypt for your graduation project context
+    }
 
     try {
       await FirebaseAuth.instance.verifyPhoneNumber(
@@ -58,7 +70,7 @@ class _SignInScreenState extends State<SignInScreen> {
 
           final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
           final prefs = await SharedPreferences.getInstance();
-          
+
           if (userDoc.exists) {
             await prefs.setString('username', userDoc.data()?['username'] ?? "User");
           }
@@ -71,9 +83,9 @@ class _SignInScreenState extends State<SignInScreen> {
           String errorMsg = e.code == 'invalid-phone-number'
               ? lp.getText('error_invalid_phone_msg')
               : e.message ?? lp.getText('error_verification_failed');
-          
+
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
-          tts.speak(lp.getText('error_verification_failed'));
+          audio.speak(lp.isRTL ? "فشل التحقق من الرقم" : "Verification failed", lp.currentLanguage);
         },
         codeSent: (String verificationId, int? resendToken) async {
           setState(() { isLoading = false; });
@@ -81,7 +93,7 @@ class _SignInScreenState extends State<SignInScreen> {
           await prefs.setBool("staySignedIn", staySignedIn);
 
           if (mounted) {
-            Navigator.pushReplacementNamed(
+            Navigator.pushNamed( // Using pushNamed to allow going back to fix phone number
               context,
               '/verfiy',
               arguments: {
@@ -104,11 +116,11 @@ class _SignInScreenState extends State<SignInScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // This is where the 'lp' variable is defined for the UI
     final lp = Provider.of<LanguageProvider>(context);
+    const primaryRed = Color(0xFFEB1B33);
 
     return Scaffold(
-      backgroundColor: const Color(0xffF8F8F8),
+      backgroundColor: const Color(0xFFF4EDE4), // Standardized background
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 25),
@@ -117,14 +129,14 @@ class _SignInScreenState extends State<SignInScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 40),
+                // Visual Mic Branding
                 Container(
-                  height: 110,
-                  width: 110,
+                  height: 110, width: 110,
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
+                    color: primaryRed.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.mic, color: Colors.red, size: 45),
+                  child: const Icon(Icons.mic, color: primaryRed, size: 45),
                 ),
                 const SizedBox(height: 25),
                 Text(
@@ -137,95 +149,106 @@ class _SignInScreenState extends State<SignInScreen> {
                   style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
                 const SizedBox(height: 40),
+
+                // Form Field Section
                 Align(
-                  alignment: lp.isEnglish ? Alignment.centerLeft : Alignment.centerRight,
+                  alignment: lp.isRTL ? Alignment.centerRight : Alignment.centerLeft,
                   child: Text(
                     lp.getText('phone_number_label'),
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                   ),
                 ),
                 const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withOpacity(0.08),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
-                  ),
-                  child: TextFormField(
-                    controller: phoneController,
-                    keyboardType: TextInputType.phone,
-                    textAlign: lp.isEnglish ? TextAlign.left : TextAlign.right,
-                    decoration: InputDecoration(
-                      hintText: lp.isEnglish ? "+966XXXXXXXXX" : "XXXXXXXXX٩٦٦+",
-                      prefixIcon: const Icon(Icons.phone),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(20),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return lp.getText('error_enter_phone');
-                      }
-                      if (!RegExp(r'^\+[1-9]\d{1,14}$').hasMatch(value.replaceAll(RegExp(r'\s|\(|\)|-'), ''))) {
-                        return lp.getText('error_valid_phone_format');
-                      }
-                      return null;
-                    },
-                  ),
-                ),
+                _buildPhoneField(lp),
+
                 const SizedBox(height: 25),
                 CheckboxListTile(
                   title: Text(lp.getText('stay_signed_in')),
                   value: staySignedIn,
-                  activeColor: Colors.red,
+                  activeColor: primaryRed,
                   onChanged: (bool? value) {
                     setState(() { staySignedIn = value!; });
                   },
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
                 const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : signIn,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    ),
-                    child: isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : Text(
-                            lp.getText('signin_button'),
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
-                  ),
-                ),
+
+                // Sign In Button
+                _buildSignInButton(primaryRed, lp),
+
                 const SizedBox(height: 25),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(lp.getText('no_account_text')),
-                    GestureDetector(
-                      onTap: () => Navigator.pushNamed(context, "/SignUp"),
-                      child: Text(
-                        lp.getText('signup_link'),
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                      ),
-                    )
-                  ],
-                ),
+                _buildSignUpLink(lp, primaryRed),
                 const SizedBox(height: 20),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPhoneField(LanguageProvider lp) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
+        ],
+      ),
+      child: TextFormField(
+        controller: phoneController,
+        keyboardType: TextInputType.phone,
+        textAlign: lp.isRTL ? TextAlign.right : TextAlign.left,
+        decoration: InputDecoration(
+          hintText: lp.isRTL ? "٠١XXXXXXXX" : "01XXXXXXXX",
+          prefixIcon: const Icon(Icons.phone_iphone, color: Colors.grey),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.all(20),
+        ),
+        validator: (value) {
+          if (value == null || value.isEmpty) return lp.getText('error_enter_phone');
+          return null;
+        },
+      ),
+    );
+  }
+
+  Widget _buildSignInButton(Color color, LanguageProvider lp) {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: isLoading ? null : signIn,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 0,
+        ),
+        child: isLoading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : Text(
+          lp.getText('signin_button'),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSignUpLink(LanguageProvider lp, Color color) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(lp.getText('no_account_text')),
+        const SizedBox(width: 5),
+        GestureDetector(
+          onTap: () => Navigator.pushNamed(context, "/SignUp"),
+          child: Text(
+            lp.getText('signup_link'),
+            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          ),
+        )
+      ],
     );
   }
 }

@@ -417,15 +417,16 @@ Stream<DocumentSnapshot> getUserDataStream() {
 }
 
 // Fetch orders that are still being processed
-Stream<QuerySnapshot> getActiveOrders() {
-  final user = FirebaseAuth.instance.currentUser;
-  return FirebaseFirestore.instance
-      .collection('orders')
-      .where('userId', isEqualTo: user?.uid)
-      .where('status', whereIn: ['Pending', 'Preparing', 'On the way'])
-      .orderBy('timestamp', descending: true)
-      .snapshots();
-}
+  Stream<QuerySnapshot> getActiveOrders(String userId) {
+    return FirebaseFirestore.instance
+        .collection('orders')
+        .where('userId', isEqualTo: userId)
+        .where('status', whereIn: ['Pending', 'Preparing', 'On the way'])
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
+
+
 // Fetch the ID of the current active order from the user's profile
   Future<String?> getActiveOrderId() async {
     try {
@@ -445,15 +446,14 @@ Stream<QuerySnapshot> getActiveOrders() {
     return null;
   }
 // Fetch orders that are finished
-Stream<QuerySnapshot> getPastOrders() {
-  final user = FirebaseAuth.instance.currentUser;
-  return FirebaseFirestore.instance
-      .collection('orders')
-      .where('userId', isEqualTo: user?.uid)
-      .where('status', whereIn: ['Delivered', 'Cancelled'])
-      .orderBy('timestamp', descending: true)
-      .snapshots();
-}
+  Stream<QuerySnapshot> getPastOrders(String userId) {
+    return FirebaseFirestore.instance
+        .collection('orders')
+        .where('userId', isEqualTo: userId)
+        .where('status', whereIn: ['Delivered', 'Cancelled'])
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
 
 // Add this to your DatabaseService class
 Stream<DocumentSnapshot> getOrderById(String orderId) {

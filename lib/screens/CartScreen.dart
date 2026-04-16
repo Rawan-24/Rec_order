@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/Models/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/PaymentScreen.dart';
-//Done
+
 class CartScreen extends StatefulWidget {
   static const String routeName = "CartScreen";
-
   const CartScreen({super.key});
 
   @override
@@ -15,26 +15,64 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
+  late LanguageProvider lp;
 
-late LanguageProvider lp; // Declare it here
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announceCartSummary();
+    });
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // This runs whenever the context is ready or changes
     lp = Provider.of<LanguageProvider>(context);
   }
-  // 2. Pricing Constants
-  final double deliveryFee = 3.99;
-  final double taxRate = 0.08; // 8%
+
+  void _announceCartSummary() async {
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    // Stop previous audio to clear the queue
+    await audio.stop();
+
+    if (cart.items.isEmpty) {
+      await audio.speak(lp.isRTL ? "سلة التسوق فارغة" : "Your cart is empty", lp.currentLanguage);
+    } else {
+      // Logic for EGP announcement
+      if (lp.isRTL) {
+        await audio.speak("سلتك تحتوي على ${cart.items.length} أصناف.", "ar-EG");
+        await audio.speak("المجموع الكلي هو ${cart.total.toStringAsFixed(0)} جنيه مصري.", "ar-EG");
+      } else {
+        await audio.speak("Your cart has ${cart.items.length} items. Your total is ${cart.total.toStringAsFixed(0)} EGP.", "en-US");
+      }
+    }
+  }
+
+  void _handleVoiceInteraction() {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    audio.toggleListening(lp.currentLanguage, (words) async {
+      String command = words.toLowerCase();
+
+      if (command.contains("checkout") || command.contains("pay") || command.contains("دفع") || command.contains("أكد")) {
+        await audio.speak(lp.isRTL ? "جاري الانتقال لصفحة الدفع" : "Proceeding to payment", lp.currentLanguage);
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentScreen()));
+        }
+      }
+      else if (command.contains("back") || command.contains("ارجع")) {
+        Navigator.pop(context);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 1. Listen to the CartProvider
     final cart = Provider.of<CartProvider>(context);
-  
-
-
+    final audio = Provider.of<AppAudioProvider>(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
@@ -42,7 +80,7 @@ late LanguageProvider lp; // Declare it here
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(lp.getText('your_cart'), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
@@ -50,54 +88,51 @@ late LanguageProvider lp; // Declare it here
       ),
       body: Column(
         children: [
-          // Voice Hint Section
-          _buildVoiceHeader(),
-
-          // Scrollable List of Items
+          _buildVoiceHeader(audio),
           Expanded(
             child: cart.items.isEmpty
-                ? const Center(child: Text("Your cart is empty"))
+                ? Center(child: Text(lp.isRTL ? "السلة فارغة" : "Your cart is empty"))
                 : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: cart.items.length,
               itemBuilder: (context, index) {
-                final item = cart.items[index]; // This is now a CartItem object
-                return _buildCartItem(item, cart);
+                final item = cart.items[index];
+                return _buildCartItem(item, cart, audio);
               },
             ),
           ),
-
-          // Bottom Summary Section
-          _buildSummarySection(cart),
+          _buildSummarySection(cart, audio),
         ],
       ),
     );
   }
 
-  Widget _buildVoiceHeader() {
+  Widget _buildVoiceHeader(AppAudioProvider audio) {
     return Column(
       children: [
-        const CircleAvatar(
-          radius: 30,
-          backgroundColor: Color(0xFFEB1B33),
-          child: Icon(Icons.mic, color: Colors.white, size: 30),
+        GestureDetector(
+          onTap: _handleVoiceInteraction,
+          child: CircleAvatar(
+            radius: 30,
+            backgroundColor: audio.isListening ? Colors.green : const Color(0xFFEB1B33),
+            child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white, size: 30),
+          ),
         ),
         const SizedBox(height: 15),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD6E0E0),
-              borderRadius: BorderRadius.circular(15),
-            ),
+            decoration: BoxDecoration(color: const Color(0xFFD6E0E0), borderRadius: BorderRadius.circular(15)),
             child: Row(
               children: [
-                const Icon(Icons.mic, color: Colors.teal, size: 20),
+                Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.teal, size: 20),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text( lp.getText('cart_voice_hint'),
-                      style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                  child: Text(
+                    audio.isListening ? (audio.lastWords.isEmpty ? "Listening..." : audio.lastWords) : lp.getText('cart_voice_hint'),
+                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  ),
                 ),
               ],
             ),
@@ -106,9 +141,9 @@ late LanguageProvider lp; // Declare it here
       ],
     );
   }
-  Widget _buildCartItem(CartItem item, CartProvider cart) {
+
+  Widget _buildCartItem(CartItem item, CartProvider cart, AppAudioProvider audio) {
     return Card(
-      key: ValueKey(item.id),
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: Padding(
@@ -123,12 +158,20 @@ late LanguageProvider lp; // Declare it here
                   children: [
                     Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     Text(item.restaurant, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                    Text(item.details, style: const TextStyle(color: Colors.grey, fontSize: 13)),
                   ],
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () => cart.removeItem(item.id), // Logic to remove
+                  onPressed: () async {
+                    // Say "Removed [Item Name]" properly in mixed languages
+                    if (lp.isRTL) {
+                      await audio.speak("تم حذف", "ar-EG");
+                      await audio.speak(item.name, "en-US");
+                    } else {
+                      await audio.speak("Removed ${item.name}", "en-US");
+                    }
+                    cart.removeItem(item.id);
+                  },
                 ),
               ],
             ),
@@ -149,8 +192,8 @@ late LanguageProvider lp; // Declare it here
                   ],
                 ),
                 Text(
-                  "\$${(item.price * item.quantity).toStringAsFixed(2)}",
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFEB1B33)),
+                  "${(item.price * item.quantity).toStringAsFixed(2)} EGP",
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFEB1B33)),
                 ),
               ],
             )
@@ -159,6 +202,7 @@ late LanguageProvider lp; // Declare it here
       ),
     );
   }
+
   Widget _qtyBtn(IconData icon, VoidCallback tap) {
     return GestureDetector(
       onTap: tap,
@@ -170,7 +214,7 @@ late LanguageProvider lp; // Declare it here
     );
   }
 
-  Widget _buildSummarySection(CartProvider cart) {
+  Widget _buildSummarySection(CartProvider cart, AppAudioProvider audio) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
@@ -179,7 +223,6 @@ late LanguageProvider lp; // Declare it here
       ),
       child: Column(
         children: [
-
           _summaryRow(lp.getText('subtotal'), cart.subtotal),
           _summaryRow(lp.getText('delivery_fee'), cart.deliveryFee),
           _summaryRow(lp.getText('tax'), cart.tax),
@@ -192,9 +235,11 @@ late LanguageProvider lp; // Declare it here
               minimumSize: const Size(double.infinity, 60),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             ),
-            onPressed: () {
-              // Navigate to CheckOut
-              Navigator.push(context, MaterialPageRoute(builder: (context) => PaymentScreen()));
+            onPressed: () async {
+              await audio.speak(lp.isRTL ? "جاري الانتقال لصفحة الدفع" : "Going to payment", lp.currentLanguage);
+              if (mounted) {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentScreen()));
+              }
             },
             child: Text(lp.getText('proceed_to_checkout'), style: const TextStyle(color: Colors.white, fontSize: 18)),
           ),
@@ -210,7 +255,7 @@ late LanguageProvider lp; // Declare it here
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(fontSize: 16, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
-          Text("\$${value.toStringAsFixed(2)}",
+          Text("${value.toStringAsFixed(2)} EGP",
               style: TextStyle(fontSize: 16, fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
                   color: isBold ? const Color(0xFFEB1B33) : Colors.black)),
         ],
