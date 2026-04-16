@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
 
@@ -16,105 +15,13 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  String selectedMethod = 'card';
+  String selectedMethod = 'card'; 
   bool isVoiceConfirmed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announcePayment();
-    });
-  }
-
-  // FIXED: Added await and stop logic for seamless voice transitions
-  void _announcePayment() async {
-    final lp = Provider.of<LanguageProvider>(context, listen: false);
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
-    await audio.stop(); // Clear any previous screen audio
-
-    if (lp.isRTL) {
-      await audio.speak("لقد وصلت لصفحة الدفع.", "ar-EG");
-      await Future.delayed(const Duration(milliseconds: 300));
-      await audio.speak("اختر وسيلة الدفع أو قل 'تأكيد بالبصمة الصوتية'.", "ar-EG");
-    } else {
-      await audio.speak("You are at the payment screen. Select a method or say 'Confirm with voice PIN'.", "en-US");
-    }
-  }
-
-  void _handleVoiceInteraction(AppAudioProvider audio, LanguageProvider lp, CartProvider cart) {
-    audio.toggleListening(lp.currentLanguage, (words) async {
-      String command = words.toLowerCase();
-
-      // Switch Payment Methods
-      if (command.contains("cash") || command.contains("كاش") || command.contains("نقدي")) {
-        setState(() => selectedMethod = 'cash');
-        await audio.speak(lp.isRTL ? "تم التبديل للدفع النقدي" : "Switched to cash", lp.currentLanguage);
-      } else if (command.contains("card") || command.contains("بطاقة")) {
-        setState(() => selectedMethod = 'card');
-        await audio.speak(lp.isRTL ? "تم التبديل للدفع بالبطاقة" : "Switched to card payment", lp.currentLanguage);
-      }
-
-      // Voice PIN Confirmation
-      if (command.contains("pin") || command.contains("confirm") || command.contains("تأكيد")) {
-        setState(() => isVoiceConfirmed = true);
-        await audio.speak(lp.isRTL ? "تم التأكيد بالبصمة الصوتية" : "Voice PIN confirmed", lp.currentLanguage);
-      }
-
-      // Final Order Command
-      if (command.contains("place order") || command.contains("اطلب الآن")) {
-        _processPayment(lp, cart);
-      }
-    });
-  }
-
-  Future<void> _processPayment(LanguageProvider lp, CartProvider cart) async {
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
-    if (selectedMethod == 'cash' || isVoiceConfirmed) {
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        try {
-          showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33))));
-
-          String orderId = await DatabaseService().placeOrder(
-            userId: user.uid,
-            total: cart.total,
-            paymentMethod: selectedMethod,
-            restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
-                ? "Multi-Restaurant Order"
-                : cart.items.first.restaurant,
-            restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
-            items: cart.items,
-            cartItems: cart.items,
-          );
-
-          await audio.speak(lp.isRTL ? "تم تأكيد طلبك بنجاح" : "Your order has been placed successfully", lp.currentLanguage);
-
-          cart.clearCart();
-          if (mounted) {
-            Navigator.pop(context); // Remove loading
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
-          }
-        } catch (e) {
-          if (mounted) {
-            Navigator.pop(context);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${lp.getText('error')}: $e")));
-          }
-        }
-      }
-    } else {
-      await audio.speak(lp.isRTL ? "من فضلك أكد البصمة الصوتية أولاً" : "Please confirm your voice PIN first", lp.currentLanguage);
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('confirm_voice_first'))));
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
     final cart = Provider.of<CartProvider>(context);
-    final audio = Provider.of<AppAudioProvider>(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
@@ -122,7 +29,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(lp.getText('payment_title'), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
@@ -133,18 +40,31 @@ class _PaymentScreenState extends State<PaymentScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: GestureDetector(
-                onTap: () => _handleVoiceInteraction(audio, lp, cart),
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: audio.isListening ? Colors.green : const Color(0xFFEB1B33),
-                  child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white, size: 40),
-                ),
+            const Center(
+              child: CircleAvatar(
+                radius: 40,
+                backgroundColor: Color(0xFFEB1B33),
+                child: Icon(Icons.mic, color: Colors.white, size: 40),
               ),
             ),
             const SizedBox(height: 20),
-            _buildVoiceHint(audio, lp),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD6E0E0),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.mic, color: Colors.teal, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(lp.getText('payment_voice_hint'),
+                        style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 30),
             Text(lp.getText('select_payment_method'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 15),
@@ -188,25 +108,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ),
       ),
       bottomNavigationBar: _buildBottomPayButton(lp, cart),
-    );
-  }
-
-  Widget _buildVoiceHint(AppAudioProvider audio, LanguageProvider lp) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: const Color(0xFFD6E0E0), borderRadius: BorderRadius.circular(15)),
-      child: Row(
-        children: [
-          Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.teal, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-                audio.isListening && audio.lastWords.isNotEmpty ? audio.lastWords : lp.getText('payment_voice_hint'),
-                style: const TextStyle(color: Colors.black54, fontSize: 13)
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -280,7 +181,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
           child: Row(
             children: [
-              const Icon(Icons.mic_none, color: Colors.blueAccent, size: 28),
+              Icon(Icons.mic_none, color: contentColor, size: 28),
               const SizedBox(width: 15),
               Expanded(
                 child: Column(
@@ -320,15 +221,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
       child: Column(
         children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('subtotal')), Text("${cart.subtotal.toStringAsFixed(2)} EGP")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('subtotal')), Text(" ${cart.subtotal.toStringAsFixed(2)}")]),
           const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('delivery_fee')), Text("${cart.deliveryFee.toStringAsFixed(2)} EGP")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('delivery_fee')), Text(" ${cart.deliveryFee.toStringAsFixed(2)}")]),
           const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('tax')), Text("${cart.tax.toStringAsFixed(2)} EGP")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(lp.getText('tax')), Text(" ${cart.tax.toStringAsFixed(2)}")]),
           const Divider(height: 30),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(lp.getText('total'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text("${cart.total.toStringAsFixed(2)} EGP", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFEB1B33)))
+            Text(" ${cart.total.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFEB1B33)))
           ]),
         ],
       ),
@@ -345,8 +246,38 @@ class _PaymentScreenState extends State<PaymentScreen> {
           minimumSize: const Size(double.infinity, 60),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
-        onPressed: () => _processPayment(lp, cart),
-        child: Text("${lp.getText('confirm_and_pay')} - ${cart.total.toStringAsFixed(2)} EGP", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        onPressed: () async {
+          if (selectedMethod == 'cash' || isVoiceConfirmed) {
+            User? user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              try {
+                showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator()));
+
+                String orderId = await DatabaseService().placeOrder(
+                  userId: user.uid,
+                  total: cart.total,
+                  paymentMethod: selectedMethod,
+                  restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
+                      ? "Multi-Restaurant Order"
+                      : cart.items.first.restaurant,
+                  restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
+                  items: cart.items,
+                  cartItems: cart.items,
+                );
+
+                cart.clearCart();
+                Navigator.pop(context); // Remove loading
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
+              } catch (e) {
+                Navigator.pop(context); // Remove loading
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${lp.getText('error')}: $e")));
+              }
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('confirm_voice_first'))));
+          }
+        },
+        child: Text("${lp.getText('confirm_and_pay')}  ${cart.total.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
       ),
     );
   }

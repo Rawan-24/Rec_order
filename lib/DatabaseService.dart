@@ -26,9 +26,43 @@ Future<void> createUserProfile(String uid, String username, String phone,{String
 
 }
 
+// DatabaseService.dart
+Future<void> processPayment(List<CartItem> items, double total) async {
+  final user = FirebaseAuth.instance.currentUser;
+  
+  // Save the final order to a 'orders' collection
+  await _db.collection('orders').add({
+    'userId': user!.uid,
+    'items': items.map((i) => i.toMap()).toList(),
+    'total': total,
+    'status': 'Pending',
+    'timestamp': FieldValue.serverTimestamp(),
+  });
+}
+// DatabaseService.dart     ///////check address
+Future<bool> hasSavedAddress() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    DocumentSnapshot doc = await _db.collection('users').doc(user.uid).get();
+    
+    if (doc.exists) {
+      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+      // Check if the 'address' key exists and is not just empty text
+      return data.containsKey('address') && data['address'].toString().trim().isNotEmpty;
+    }
+    return false;
+  } catch (e) {
+    debugPrint("Error checking address: $e");
+    return false;
+  }
+}
+
 
   /// Specifically updates only the language field
   /// This is called from your LanguageProvider
+// DatabaseService.dart
 
 
   /// Fetches user data to check for language preference during splash/login

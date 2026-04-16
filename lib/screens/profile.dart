@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart'; // Import Provider
 import 'package:grad_project/screens/personal_information.dart';
 
 import 'Delivery_Address.dart';
@@ -16,60 +15,8 @@ import 'VoiceSettingsPage.dart';
 import 'favorites.dart';
 import 'history.dart';
 
-class ProfilePage extends StatefulWidget {
+class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
-
-  @override
-  State<ProfilePage> createState() => _ProfilePageState();
-}
-
-class _ProfilePageState extends State<ProfilePage> {
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announceProfile();
-    });
-  }
-
-  void _announceProfile() {
-    final lp = Provider.of<LanguageProvider>(context, listen: false);
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    String msg = lp.isRTL
-        ? "ملفك الشخصي. يمكنك قول 'عناويني'، 'طرق الدفع'، أو 'تسجيل الخروج'."
-        : "Your profile. You can say 'My addresses', 'Payment methods', or 'Logout'.";
-    audio.speak(msg, lp.currentLanguage);
-  }
-
-  void _handleVoiceNavigation(AppAudioProvider audio, LanguageProvider lp) {
-    audio.toggleListening(lp.currentLanguage, (words) {
-      String command = words.toLowerCase();
-
-      if (command.contains("address") || command.contains("عناوين")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const DeliveryAddressesPage()));
-      } else if (command.contains("payment") || command.contains("دفع")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentMethodsPage()));
-      } else if (command.contains("history") || command.contains("طلباتي")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
-      } else if (command.contains("favorite") || command.contains("مفضل")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
-      } else if (command.contains("logout") || command.contains("خروج")) {
-        _performLogout(context);
-      }
-    });
-  }
-
-  Future<void> _performLogout(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
-    if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const SignInScreen()),
-            (route) => false,
-      );
-    }
-  }
 
   String _getInitials(String name) {
     if (name.isEmpty) return "??";
@@ -83,9 +30,13 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
-    final audio = Provider.of<AppAudioProvider>(context);
     final user = FirebaseAuth.instance.currentUser;
     const primaryRed = Color(0xFFD32F2F);
+    const backgroundGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFFB71C1C), Color(0xFFD32F2F)],
+    );
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -107,13 +58,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.only(top: 60, bottom: 30, left: 20, right: 20),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFB71C1C), Color(0xFFD32F2F)],
-                    ),
-                  ),
+                  decoration: const BoxDecoration(gradient: backgroundGradient),
                   child: Column(
                     children: [
                       Row(
@@ -123,7 +68,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             onPressed: () => Navigator.pushAndRemoveUntil(
                               context,
                               MaterialPageRoute(builder: (context) => const HomePage()),
-                                  (route) => false,
+                              (route) => false,
                             ),
                           ),
                           Expanded(
@@ -150,22 +95,10 @@ class _ProfilePageState extends State<ProfilePage> {
                       Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
                       Text(displayPhone, style: const TextStyle(color: Colors.white70, fontSize: 16)),
                       const SizedBox(height: 25),
-
-                      // Voice Activation Button
-                      GestureDetector(
-                        onTap: () => _handleVoiceNavigation(audio, lp),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                              color: audio.isListening ? Colors.green : Colors.white24,
-                              shape: BoxShape.circle
-                          ),
-                          child: Icon(
-                              audio.isListening ? Icons.graphic_eq : Icons.mic,
-                              color: Colors.white,
-                              size: 35
-                          ),
-                        ),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
+                        child: const Icon(Icons.mic, color: Colors.white, size: 35),
                       ),
                     ],
                   ),
@@ -176,15 +109,42 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildVoiceBar(primaryRed, lp, audio),
+                      _buildVoiceBar(primaryRed, lp),
                       const SizedBox(height: 30),
                       _buildSectionTitle(lp.getText('recent_orders'), lp, onAction: () {
                         Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
                       }),
                       const SizedBox(height: 10),
 
-                      // Order Stream Logic
-                      _buildRecentOrdersStream(user, primaryRed, lp),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('orders')
+                            .where('userId', isEqualTo: user?.uid)
+                            .orderBy('timestamp', descending: true)
+                            .limit(2)
+                            .snapshots(),
+                        builder: (context, orderSnapshot) {
+                          if (!orderSnapshot.hasData || orderSnapshot.data!.docs.isEmpty) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Text(lp.getText('no_recent_orders'), style: const TextStyle(color: Colors.grey)),
+                            );
+                          }
+                          return Column(
+                            children: orderSnapshot.data!.docs.map((doc) {
+                              var data = doc.data() as Map<String, dynamic>;
+                              int itemCount = data['items']?.length ?? 0;
+                              return _buildOrderCard(
+                                data['restaurantName'] ?? lp.getText('restaurant_placeholder'),
+                                "$itemCount ${lp.getText('items_label')}",
+                                "SAR ${(data['totalPrice'] ?? 0.0).toStringAsFixed(2)}",
+                                primaryRed,
+                                lp,
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
 
                       const SizedBox(height: 30),
                       _buildSectionTitle(lp.getText('section_account'), lp),
@@ -214,6 +174,17 @@ class _ProfilePageState extends State<ProfilePage> {
                         }),
                       ]),
 
+                      const SizedBox(height: 25),
+                      _buildSectionTitle(lp.getText('section_activity'), lp),
+                      _buildSettingsGroup([
+                        _buildSettingsTile(Icons.history, lp.getText('order_history_tile'), onTap: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
+                        }),
+                        _buildSettingsTile(Icons.favorite_border, lp.getText('favorites_tile'), onTap: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
+                        }),
+                      ]),
+
                       const SizedBox(height: 40),
                       _buildLogoutButton(context, primaryRed, lp),
                       const SizedBox(height: 20),
@@ -228,56 +199,19 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // --- UI Helper Components ---
-
-  Widget _buildRecentOrdersStream(User? user, Color primaryRed, LanguageProvider lp) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('orders')
-          .where('userId', isEqualTo: user?.uid)
-          .orderBy('timestamp', descending: true)
-          .limit(2)
-          .snapshots(),
-      builder: (context, orderSnapshot) {
-        if (!orderSnapshot.hasData || orderSnapshot.data!.docs.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            child: Text(lp.getText('no_recent_orders'), style: const TextStyle(color: Colors.grey)),
-          );
-        }
-        return Column(
-          children: orderSnapshot.data!.docs.map((doc) {
-            var data = doc.data() as Map<String, dynamic>;
-            int itemCount = data['items']?.length ?? 0;
-            return _buildOrderCard(
-              data['restaurantName'] ?? lp.getText('restaurant_placeholder'),
-              "$itemCount ${lp.getText('items_label')}",
-              "SAR ${(data['totalPrice'] ?? 0.0).toStringAsFixed(2)}",
-              primaryRed,
-              lp,
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildVoiceBar(Color primaryRed, LanguageProvider lp, AppAudioProvider audio) {
+  Widget _buildVoiceBar(Color primaryRed, LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
       decoration: BoxDecoration(
-        color: audio.isListening ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.05),
+        color: Colors.red.withOpacity(0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: audio.isListening ? Colors.green : primaryRed.withOpacity(0.2)),
+        border: Border.all(color: primaryRed.withOpacity(0.2)),
       ),
       child: Row(
         children: [
-          Icon(audio.isListening ? Icons.graphic_eq : Icons.mic_none, color: audio.isListening ? Colors.green : primaryRed, size: 20),
+          Icon(Icons.mic_none, color: primaryRed, size: 20),
           const SizedBox(width: 10),
-          Text(
-              audio.isListening && audio.lastWords.isNotEmpty ? audio.lastWords : lp.getText('profile_voice_hint'),
-              style: const TextStyle(color: Colors.black54)
-          ),
+          Text(lp.getText('profile_voice_hint'), style: const TextStyle(color: Colors.black54)),
         ],
       ),
     );
@@ -324,7 +258,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             const Divider(height: 24),
             InkWell(
-              onTap: () {},
+              onTap: () {}, 
               child: Row(
                 children: [
                   Text(lp.getText('reorder_button'), style: TextStyle(color: accent, fontWeight: FontWeight.w600)),
@@ -363,7 +297,14 @@ class _ProfilePageState extends State<ProfilePage> {
       width: double.infinity,
       height: 55,
       child: ElevatedButton.icon(
-        onPressed: () => _performLogout(context),
+        onPressed: () async {
+          await FirebaseAuth.instance.signOut();
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => const SignInScreen()),
+            (route) => false,
+          );
+        },
         icon: const Icon(Icons.logout),
         label: Text(lp.getText('logout_button'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         style: ElevatedButton.styleFrom(
