@@ -19,139 +19,110 @@ class RestaurantCard extends StatelessWidget {
     required this.onTap,
   });
 
-  /// Handles the voice announcement with smart language switching
+  // FIXED: Added async/await and multi-language handling for natural flow
   Future<void> _announceRestaurant(BuildContext context) async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    // Stop any existing announcements (like from a previous card tap)
+    // Stop previous audio to clear the path for the new announcement
     await audio.stop();
 
     if (lp.isRTL) {
-      // Logic: Speak the name (usually English/Global brand) then Arabic details
-      // We don't await the first one if we want the second to follow immediately
-      // in a specific sequence handled by the provider.
+      // Announce the name with English accent (assuming names are English)
+      // then the details in Arabic
       await audio.speak(name, "en-US");
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 300));
       await audio.speak("التقييم $rating. يبعد مسافة $distance.", "ar-EG");
     } else {
-      await audio.speak("$name. Rating $rating. $distance away.", "en-US");
+      await audio.speak("$name. Rating $rating. It is $distance away.", "en-US");
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const primaryRed = Color(0xFFEB1B33);
+    const primaryRed = Color(0xFFEB1B33); // Matched your project brand red
     final lp = Provider.of<LanguageProvider>(context);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          onTap: () {
-            // Trigger voice feedback immediately
-            _announceRestaurant(context);
-            // Navigate to restaurant details
-            onTap();
-          },
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image Section with Stack for Rating Badge
-              Stack(
+    return Card(
+      margin: const EdgeInsets.only(bottom: 20),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () async {
+          // We await the announcement so the user hears the name
+          // before the screen transition happens
+          await _announceRestaurant(context);
+          onTap();
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: Image.network(
+                image,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 160,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.broken_image, color: Colors.grey, size: 50),
+                ),
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    height: 160,
+                    color: Colors.grey[100],
+                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: primaryRed)),
+                  );
+                },
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Image.network(
-                    image,
-                    height: 170,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 170,
-                      color: const Color(0xFFF4EDE4),
-                      child: const Icon(Icons.restaurant, color: Colors.grey, size: 40),
-                    ),
-                  ),
-                  // Rating Badge Overlay
-                  Positioned(
-                    top: 12,
-                    right: lp.isRTL ? null : 12,
-                    left: lp.isRTL ? 12 : null,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.star, color: Colors.orange, size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            rating,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
+                      const Icon(Icons.favorite_border, color: primaryRed, size: 22),
+                    ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.star, color: Colors.orange, size: 18),
+                      const SizedBox(width: 4),
+                      Text(
+                        rating,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 16),
+                      // RTL fix for location icon padding
+                      Icon(Icons.location_on, size: 18, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        distance,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ],
+                  )
                 ],
               ),
-
-              Padding(
-                padding: const EdgeInsets.all(15),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            name,
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.5),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const Icon(Icons.favorite_border, color: primaryRed, size: 24),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(Icons.access_time_rounded, size: 16, color: Colors.grey[500]),
-                        const SizedBox(width: 4),
-                        Text(
-                          "25-35 min", // Mock delivery time for realism
-                          style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                        ),
-                        const SizedBox(width: 15),
-                        Icon(Icons.location_on_outlined, size: 16, color: Colors.grey[500]),
-                        const SizedBox(width: 4),
-                        Text(
-                          distance,
-                          style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-              )
-            ],
-          ),
+            )
+          ],
         ),
       ),
     );

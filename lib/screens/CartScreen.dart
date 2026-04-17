@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:provider/provider.dart';
 import 'package:grad_project/Models/CartItem.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/PaymentScreen.dart';
@@ -35,17 +35,38 @@ class _CartScreenState extends State<CartScreen> {
     final cart = Provider.of<CartProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stopTts();
+    // Stop previous audio to clear the queue
+    await audio.stop();
 
     if (cart.items.isEmpty) {
       await audio.speak(lp.isRTL ? "سلة التسوق فارغة" : "Your cart is empty", lp.currentLanguage);
     } else {
+      // Logic for EGP announcement
       if (lp.isRTL) {
-        await audio.speak("سلتك فيها ${cart.items.length} أصناف. المجموع ${cart.total.toStringAsFixed(0)} جنيه.", "ar-EG");
+        await audio.speak("سلتك تحتوي على ${cart.items.length} أصناف.", "ar-EG");
+        await audio.speak("المجموع الكلي هو ${cart.total.toStringAsFixed(0)} جنيه مصري.", "ar-EG");
       } else {
-        await audio.speak("Your cart has ${cart.items.length} items. Total is ${cart.total.toStringAsFixed(0)} EGP.", "en-US");
+        await audio.speak("Your cart has ${cart.items.length} items. Your total is ${cart.total.toStringAsFixed(0)} EGP.", "en-US");
       }
     }
+  }
+
+  void _handleVoiceInteraction() {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    audio.toggleListening(lp.currentLanguage, (words) async {
+      String command = words.toLowerCase();
+
+      if (command.contains("checkout") || command.contains("pay") || command.contains("دفع") || command.contains("أكد")) {
+        await audio.speak(lp.isRTL ? "جاري الانتقال لصفحة الدفع" : "Proceeding to payment", lp.currentLanguage);
+        if (mounted) {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentScreen()));
+        }
+      }
+      else if (command.contains("back") || command.contains("ارجع")) {
+        Navigator.pop(context);
+      }
+    });
   }
 
   @override
@@ -67,6 +88,7 @@ class _CartScreenState extends State<CartScreen> {
       ),
       body: Column(
         children: [
+          _buildVoiceHeader(audio),
           Expanded(
             child: cart.items.isEmpty
                 ? Center(child: Text(lp.isRTL ? "السلة فارغة" : "Your cart is empty"))
@@ -82,6 +104,41 @@ class _CartScreenState extends State<CartScreen> {
           _buildSummarySection(cart, audio),
         ],
       ),
+    );
+  }
+
+  Widget _buildVoiceHeader(AppAudioProvider audio) {
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: _handleVoiceInteraction,
+          child: CircleAvatar(
+            radius: 30,
+            backgroundColor: audio.isListening ? Colors.green : const Color(0xFFEB1B33),
+            child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white, size: 30),
+          ),
+        ),
+        const SizedBox(height: 15),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: const Color(0xFFD6E0E0), borderRadius: BorderRadius.circular(15)),
+            child: Row(
+              children: [
+                Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.teal, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    audio.isListening ? (audio.lastWords.isEmpty ? "Listening..." : audio.lastWords) : lp.getText('cart_voice_hint'),
+                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -106,8 +163,10 @@ class _CartScreenState extends State<CartScreen> {
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   onPressed: () async {
+                    // Say "Removed [Item Name]" properly in mixed languages
                     if (lp.isRTL) {
-                      await audio.speak("تم حذف ${item.name}", "ar-EG");
+                      await audio.speak("تم حذف", "ar-EG");
+                      await audio.speak(item.name, "en-US");
                     } else {
                       await audio.speak("Removed ${item.name}", "en-US");
                     }
@@ -157,21 +216,19 @@ class _CartScreenState extends State<CartScreen> {
 
   Widget _buildSummarySection(CartProvider cart, AppAudioProvider audio) {
     return Container(
-      padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 90), // Spaced for the FAB
+      padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           _summaryRow(lp.getText('subtotal'), cart.subtotal),
           _summaryRow(lp.getText('delivery_fee'), cart.deliveryFee),
           _summaryRow(lp.getText('tax'), cart.tax),
           const Divider(),
           _summaryRow(lp.getText('total'), cart.total, isBold: true),
-          const SizedBox(height: 15),
+          const SizedBox(height: 20),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFEB1B33),
@@ -180,7 +237,9 @@ class _CartScreenState extends State<CartScreen> {
             ),
             onPressed: () async {
               await audio.speak(lp.isRTL ? "جاري الانتقال لصفحة الدفع" : "Going to payment", lp.currentLanguage);
-              if (mounted) Navigator.pushNamed(context, '/PaymentScreen');
+              if (mounted) {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentScreen()));
+              }
             },
             child: Text(lp.getText('proceed_to_checkout'), style: const TextStyle(color: Colors.white, fontSize: 18)),
           ),

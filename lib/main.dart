@@ -78,6 +78,8 @@ class MyApp extends StatelessWidget {
             '/language': (context) => const LanguageSelectionScreen(),
             "/signin": (context) => const SignInScreen(),
             "/SignUp": (context) => const SignUpPage(),
+            '/VerificationScreen': (context) => const VerificationScreen(),
+            '/profile': (context) => const ProfilePage(),
             '/home': (context) => const HomePage(),
             '/TrackOrderScreen': (context) => const TrackOrderScreen(orderId: ''), // Consider passing ID via arguments
             '/PaymentScreen': (context) => const PaymentScreen(),

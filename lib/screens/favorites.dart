@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/Models/FavoriteModel.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Import Provider
 import 'package:provider/provider.dart';
 
 class FavoritesPage extends StatefulWidget {
@@ -19,7 +19,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
   @override
   void initState() {
     super.initState();
-    // Greet the user and explain the page on load
+    // Greet and explain the page
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announcePage();
     });
@@ -34,9 +34,19 @@ class _FavoritesPageState extends State<FavoritesPage> {
   void _announcePage() {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
     String msg = lp.isRTL
-        ? "قائمة المطاعم المفضلة لديك. المساعد الشخصي مفعل، يمكنك قول اسم المطعم لفتحه."
-        : "Your favorite restaurants. Assistant mode is active, you can say a restaurant name to open it.";
+        ? "قائمة المطاعم المفضلة لديك. يمكنك الضغط على المطعم للطلب أو حذفه من المفضلة."
+        : "Your favorite restaurants. Tap to order or remove them from your list.";
     audio.speak(msg, lp.currentLanguage);
+  }
+
+  void _handleVoiceCommand(BuildContext context, AppAudioProvider audio) {
+    audio.toggleListening(lp.currentLanguage, (words) {
+      String command = words.toLowerCase();
+      // Example: "Remove all" or "Go back"
+      if (command.contains("ارجع") || command.contains("back")) {
+        Navigator.pop(context);
+      }
+    });
   }
 
   @override
@@ -54,10 +64,6 @@ class _FavoritesPageState extends State<FavoritesPage> {
         backgroundColor: primaryRed,
         foregroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
       ),
       body: userId.isEmpty
           ? Center(child: Text(lp.getText('login_to_see_favs')))
@@ -79,13 +85,19 @@ class _FavoritesPageState extends State<FavoritesPage> {
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100), // Padding for Global Mic
+            padding: const EdgeInsets.all(16),
             itemCount: favorites.length,
             itemBuilder: (context, index) {
               return _buildFavoriteCard(favorites[index], primaryRed, userId, audio);
             },
           );
         },
+      ),
+      // Voice interaction FAB
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: audio.isListening ? Colors.green : primaryRed,
+        onPressed: () => _handleVoiceCommand(context, audio),
+        child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white),
       ),
     );
   }
@@ -101,9 +113,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
       ),
       child: InkWell(
         onTap: () {
+          // Provide audio feedback for the selected restaurant
           String msg = lp.isRTL ? "فتحت صفحة ${item.name}" : "Opening ${item.name}";
           audio.speak(msg, lp.currentLanguage);
-          // Navigate to Restaurant Detail (e.g., Navigator.pushNamed(context, '/restaurant', arguments: item.id);)
+          // Navigate to Restaurant Detail
         },
         child: Column(
           children: [
@@ -137,6 +150,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     ),
                   ),
                 ),
+                // ... rating tag stays the same
               ],
             ),
             Padding(
@@ -154,6 +168,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                           style: TextStyle(color: Colors.grey[600], fontSize: 14)),
                     ],
                   ),
+                  // ... time icon stays same
                 ],
               ),
             ),
@@ -179,7 +194,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               backgroundColor: accent,
               foregroundColor: Colors.white,
             ),
-            child: Text(lp.getText('explore_restaurants')),
+            child:  Text(lp.getText('explore_restaurants')),
           ),
         ],
       ),

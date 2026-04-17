@@ -6,7 +6,7 @@ import 'package:grad_project/screens/Menu.dart';
 import 'package:grad_project/screens/RestaurantCard.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Ensure this is imported
 
 class RestaurantsScreen extends StatefulWidget {
   static const String routeName = "RestaurantsScreen";
@@ -19,12 +19,12 @@ class RestaurantsScreen extends StatefulWidget {
 class _RestaurantsScreenState extends State<RestaurantsScreen> {
   final DatabaseService _dbService = DatabaseService();
   String _currentFilter = 'reset';
-  final Color primaryRed = const Color(0xFFEB1B33);
 
   @override
   void initState() {
     super.initState();
     _checkAndSeedData();
+    // Announce the screen when it opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announceRestaurantsScreen();
     });
@@ -38,34 +38,44 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
     }
   }
 
+  // FIXED: Added voice announcement for the screen
   void _announceRestaurantsScreen() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stop();
+    await audio.stop(); // Clear any audio from the Home/Splash screen
 
-    String msg = lp.isRTL
-        ? "قائمة المطاعم. يمكنك الترتيب حسب التقييم أو المسافة بالصوت."
-        : "Restaurant list. You can sort by rating or distance using your voice.";
-    audio.speak(msg, lp.currentLanguage);
+    if (lp.isRTL) {
+      await audio.speak("قائمة المطاعم.", "ar-EG");
+      await Future.delayed(const Duration(milliseconds: 300));
+      await audio.speak("يمكنك الفرز حسب التقييم أو المسافة بالصوت.", "ar-EG");
+    } else {
+      await audio.speak("Restaurant list. You can sort by rating or distance using your voice.", "en-US");
+    }
   }
 
   void _handleVoiceFilter(AppAudioProvider audio, LanguageProvider lp) {
     audio.toggleListening(lp.currentLanguage, (words) async {
       String command = words.toLowerCase();
 
-      if (command.contains("rating") || command.contains("تقييم") || command.contains("أعلى")) {
-        setState(() => _currentFilter = 'rating');
-        audio.speak(lp.isRTL ? "تم الترتيب حسب التقييم" : "Sorting by highest rating", lp.currentLanguage);
+      if (command.contains("rating") || command.contains("تقييم") || command.contains("الاعلى")) {
+        _applyFilter('rating');
+        await audio.speak(lp.isRTL ? "تم الترتيب حسب التقييم" : "Sorting by rating", lp.currentLanguage);
       }
       else if (command.contains("distance") || command.contains("مسافة") || command.contains("قريب")) {
-        setState(() => _currentFilter = 'distance');
-        audio.speak(lp.isRTL ? "تم الترتيب حسب الأقرب" : "Sorting by distance", lp.currentLanguage);
+        _applyFilter('distance');
+        await audio.speak(lp.isRTL ? "تم الترتيب حسب الأقرب" : "Sorting by distance", lp.currentLanguage);
       }
-      else if (command.contains("reset") || command.contains("افتراضي") || command.contains("كل")) {
-        setState(() => _currentFilter = 'reset');
-        audio.speak(lp.isRTL ? "تمت إعادة الضبط" : "Filters reset to default", lp.currentLanguage);
+      else if (command.contains("reset") || command.contains("اعادة") || command.contains("افتراضي")) {
+        _applyFilter('reset');
+        await audio.speak(lp.isRTL ? "تمت إعادة الضبط" : "Filters reset", lp.currentLanguage);
       }
+    });
+  }
+
+  void _applyFilter(String criteria) {
+    setState(() {
+      _currentFilter = criteria;
     });
   }
 
@@ -73,25 +83,26 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
     final audio = Provider.of<AppAudioProvider>(context);
+    const primaryRed = Color(0xFFEB1B33);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4EDE4),
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 0.5,
+        elevation: 0,
         leading: IconButton(
           icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           lp.getText('restaurants_title'),
-          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18),
+          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.sort_rounded, color: Colors.black),
-            onSelected: (val) => setState(() => _currentFilter = val),
+            icon: const Icon(Icons.filter_alt, color: Colors.black),
+            onSelected: _applyFilter,
             itemBuilder: (context) => [
               PopupMenuItem(value: 'rating', child: Text(lp.getText('filter_rating'))),
               PopupMenuItem(value: 'distance', child: Text(lp.getText('filter_distance'))),
@@ -100,34 +111,38 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           ),
         ],
       ),
-      // The "Voice Command" Button is now central to the UI
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: audio.isListening ? Colors.green : primaryRed,
-        onPressed: () => _handleVoiceFilter(audio, lp),
-        child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white),
+      // Updated FAB to handle listening state and color
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(top: 70),
+        child: FloatingActionButton(
+          backgroundColor: audio.isListening ? Colors.green : primaryRed,
+          onPressed: () => _handleVoiceFilter(audio, lp),
+          child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white),
+        ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerTop,
       body: Column(
         children: [
-          _buildActiveFilterIndicator(lp),
+          const SizedBox(height: 70),
           _buildVoiceHintBar(audio, lp),
+          const SizedBox(height: 10),
           Expanded(
             child: StreamBuilder<List<Restaurant>>(
               stream: _dbService.getRestaurantsStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33)));
+                  return const Center(child: CircularProgressIndicator(color: primaryRed));
                 }
 
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return Center(child: Text(lp.isRTL ? "لا توجد مطاعم" : "No restaurants found"));
-                }
+                List<Restaurant> restaurants = snapshot.data ?? [];
 
-                List<Restaurant> restaurants = List.from(snapshot.data!);
-
-                // Refined Sorting Logic
+                // Sorting Logic
                 if (_currentFilter == 'rating') {
-                  restaurants.sort((a, b) => (double.tryParse(b.rating) ?? 0).compareTo(double.tryParse(a.rating) ?? 0));
+                  restaurants.sort((a, b) {
+                    double ratingA = double.tryParse(a.rating) ?? 0.0;
+                    double ratingB = double.tryParse(b.rating) ?? 0.0;
+                    return ratingB.compareTo(ratingA);
+                  });
                 } else if (_currentFilter == 'distance') {
                   restaurants.sort((a, b) {
                     double distA = double.tryParse(a.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
@@ -137,18 +152,21 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 80), // Added bottom padding for FAB
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: restaurants.length,
                   itemBuilder: (context, index) {
+                    var restaurant = restaurants[index];
                     return RestaurantCard(
-                      name: restaurants[index].name,
-                      rating: restaurants[index].rating,
-                      distance: restaurants[index].distance,
-                      image: restaurants[index].image,
+                      name: restaurant.name,
+                      rating: restaurant.rating,
+                      distance: restaurant.distance,
+                      image: restaurant.image,
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => Menu(restaurant: restaurants[index])),
+                          MaterialPageRoute(
+                            builder: (context) => Menu(restaurant: restaurant),
+                          ),
                         );
                       },
                     );
@@ -162,55 +180,25 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
     );
   }
 
-  Widget _buildActiveFilterIndicator(LanguageProvider lp) {
-    if (_currentFilter == 'reset') return const SizedBox.shrink();
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      child: Row(
-        children: [
-          Icon(Icons.auto_awesome, size: 14, color: primaryRed),
-          const SizedBox(width: 8),
-          Text(
-            _currentFilter == 'rating' ? lp.getText('filter_rating') : lp.getText('filter_distance'),
-            style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold, fontSize: 12),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: () => setState(() => _currentFilter = 'reset'),
-            child: const Icon(Icons.close, size: 16, color: Colors.grey),
-          )
-        ],
-      ),
-    );
-  }
-
   Widget _buildVoiceHintBar(AppAudioProvider audio, LanguageProvider lp) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: audio.isListening ? Colors.green.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: audio.isListening ? Colors.green : Colors.black12),
+          color: const Color(0xFFD6E0E0),
+          borderRadius: BorderRadius.circular(25),
         ),
         child: Row(
           children: [
-            Icon(Icons.tips_and_updates_rounded, color: audio.isListening ? Colors.green : Colors.teal, size: 20),
-            const SizedBox(width: 12),
+            Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.teal),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 audio.isListening && audio.lastWords.isNotEmpty
                     ? audio.lastWords
-                    : (lp.isRTL ? "جرب قول: 'رتب حسب التقييم'" : "Try: 'Sort by rating'"),
-                style: TextStyle(
-                    color: audio.isListening ? Colors.black87 : Colors.black54,
-                    fontSize: 13,
-                    fontStyle: audio.isListening ? FontStyle.italic : FontStyle.normal
-                ),
+                    : lp.getText('restaurants_voice_hint'),
+                style: const TextStyle(color: Colors.black54, fontSize: 13),
               ),
             )
           ],

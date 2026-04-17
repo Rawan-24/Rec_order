@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Standardized Provider
 import 'package:provider/provider.dart';
 
 class VoiceSettingsPage extends StatefulWidget {
@@ -15,9 +15,11 @@ class VoiceSettingsPage extends StatefulWidget {
 }
 
 class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
-  // --- Local State ---
   bool _voiceCommands = true;
   bool _voiceFeedback = true;
+  bool _wakeWord = true;
+  bool _autoListen = false;
+  bool _voiceConfirmation = true;
   double _volume = 80;
   String _selectedSpeed = "1.0x Normal";
   String _selectedLanguage = "English (US)";
@@ -30,7 +32,6 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     _loadSettingsFromServer();
   }
 
-  /// Fetches saved preferences from Firestore and updates Providers
   Future<void> _loadSettingsFromServer() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -41,30 +42,32 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           _selectedSpeed = settings['speed'] ?? "1.0x Normal";
           _volume = (settings['volume'] ?? 80.0).toDouble();
           _selectedLanguage = settings['language'] ?? "English (US)";
+          _wakeWord = settings['wakeWord'] ?? true;
           _voiceFeedback = settings['voiceFeedback'] ?? true;
           _voiceCommands = settings['voiceCommands'] ?? true;
+          _autoListen = settings['autoListen'] ?? false;
+          _voiceConfirmation = settings['voiceConfirmation'] ?? true;
         });
-        _syncGlobalProviders();
+
+        // Update local providers to match server data
+        _syncProviders();
       }
     }
   }
 
-  /// Applies local settings to the global Audio and Language Providers
-  void _syncGlobalProviders() {
+  void _syncProviders() {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    // Sync Language
     String code = _selectedLanguage.contains("Arabic") ? 'ar' : 'en';
     if (lp.currentLanguage != code) lp.changeLanguage(code);
 
-    // Sync Audio properties
-    double rate = double.tryParse(_selectedSpeed.split('x')[0]) ?? 1.0;
+    // Apply speech rate and volume to the global audio provider
+    double rate = double.parse(_selectedSpeed.split('x')[0]);
     audio.setSpeechRate(rate);
     audio.setVolume(_volume / 100);
   }
 
-  /// Handles language switching with immediate voice confirmation
   Future<void> _handleLanguageChange(String selectedDisplayName) async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
@@ -74,16 +77,15 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     String code = selectedDisplayName.contains("Arabic") ? 'ar' : 'en';
     await lp.changeLanguage(code);
 
-    // Audio confirmation in the newly selected language
+    // Give a voice confirmation of the language change
     await audio.speak(
-        code == 'ar' ? "تم تغيير لغة الصوت إلى العربية" : "Voice language set to English",
+        code == 'ar' ? "تم تغيير اللغة إلى العربية" : "Language changed to English",
         lp.currentLanguage
     );
 
     _saveToCloud();
   }
 
-  /// Persists settings to Firebase Firestore
   Future<void> _saveToCloud() async {
     try {
       User? user = FirebaseAuth.instance.currentUser;
@@ -92,13 +94,18 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           'speed': _selectedSpeed,
           'volume': _volume,
           'language': _selectedLanguage,
+          'wakeWord': _wakeWord,
           'voiceFeedback': _voiceFeedback,
           'voiceCommands': _voiceCommands,
+          'autoListen': _autoListen,
+          'voiceConfirmation': _voiceConfirmation,
           'lastUpdated': FieldValue.serverTimestamp(),
         });
       }
     } catch (e) {
-      debugPrint("Firebase Sync Error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sync failed")));
+      }
     }
   }
 
@@ -107,40 +114,52 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     final lp = Provider.of<LanguageProvider>(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4EDE4),
+      backgroundColor: const Color(0xFFF4EDE4), // Standard app cream background
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: primaryRed,
         elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(lp.getText('voice_settings_title'),
-            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+        title: Text(lp.getText('voice_settings_title'), style: const TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadSettingsFromServer),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
           children: [
-            _buildStatusHeader(lp),
+            _buildVisualHeader(),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              padding: const EdgeInsets.all(16.0),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildMainToggleCard(lp),
+                  _buildVoiceHint(lp),
+                  const SizedBox(height: 25),
+                  _buildMainVoiceToggle(lp),
                   const SizedBox(height: 25),
 
-                  _buildSectionLabel(lp.getText('speech_speed_header'), Icons.speed_rounded),
-                  _buildSpeedChips(),
-                  const SizedBox(height: 25),
+                  _buildSectionHeader(Icons.settings_voice, lp.getText('voice_features_header')),
+                  _buildSettingsGroup([
+                    _buildToggleTile(lp.getText('voice_feedback_title'), lp.getText('voice_feedback_sub'), _voiceFeedback, (v) {
+                      setState(() => _voiceFeedback = v);
+                      _saveToCloud();
+                    }, Icons.volume_up_outlined),
+                    _buildToggleTile(lp.getText('wake_word_title'), lp.getText('wake_word_sub'), _wakeWord, (v) {
+                      setState(() => _wakeWord = v);
+                      _saveToCloud();
+                    }, Icons.record_voice_over),
+                  ]),
 
-                  _buildSectionLabel(lp.getText('voice_volume_header'), Icons.volume_up_rounded),
-                  _buildVolumeCard(lp),
                   const SizedBox(height: 25),
+                  _buildSectionHeader(Icons.speed, lp.getText('speech_speed_header')),
+                  _buildSpeedSelector(),
 
-                  _buildSectionLabel(lp.getText('voice_lang_header'), Icons.translate_rounded),
-                  _buildLanguageCard(),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 25),
+                  _buildSectionHeader(Icons.volume_up, lp.getText('voice_volume_header')),
+                  _buildVolumeSlider(lp),
+
+                  const SizedBox(height: 25),
+                  _buildSectionHeader(Icons.translate, lp.getText('voice_lang_header')),
+                  _buildLanguageSelector(),
                 ],
               ),
             ),
@@ -150,148 +169,167 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildStatusHeader(LanguageProvider lp) {
+  Widget _buildVisualHeader() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 30),
+      height: 120, width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10)],
+        color: primaryRed,
+        borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)),
       ),
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundColor: primaryRed.withOpacity(0.1),
-            child: Icon(Icons.mic_rounded, color: primaryRed, size: 40),
-          ),
-          const SizedBox(height: 15),
-          Text(_voiceCommands ? lp.getText('voice_status_active') : "Voice Inactive",
-              style: TextStyle(
-                color: _voiceCommands ? Colors.green : Colors.grey,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              )),
-        ],
+      child: const Center(
+        child: Icon(Icons.mic, color: Colors.white, size: 60),
       ),
     );
   }
 
-  Widget _buildMainToggleCard(LanguageProvider lp) {
-    return _buildContainer([
-      SwitchListTile(
-        title: Text(lp.getText('voice_commands_main'), style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(lp.getText('voice_hint_text'), style: const TextStyle(fontSize: 12)),
-        value: _voiceCommands,
-        activeColor: primaryRed,
-        onChanged: (v) {
-          setState(() => _voiceCommands = v);
-          _saveToCloud();
-        },
-      ),
-    ]);
-  }
-
-  Widget _buildSpeedChips() {
-    List<String> speeds = ["0.75x", "1.0x Normal", "1.25x", "1.5x"];
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
-    return _buildContainer([
-      Padding(
-        padding: const EdgeInsets.all(12),
-        child: Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: speeds.map((s) => ChoiceChip(
-            label: Text(s),
-            selected: _selectedSpeed == s,
-            onSelected: (selected) {
-              if (selected) {
-                setState(() => _selectedSpeed = s);
-                audio.setSpeechRate(double.parse(s.split('x')[0]));
-                _saveToCloud();
-              }
-            },
-            selectedColor: primaryRed,
-            labelStyle: TextStyle(
-              color: _selectedSpeed == s ? Colors.white : Colors.black,
-              fontWeight: FontWeight.bold,
-            ),
-          )).toList(),
-        ),
-      )
-    ]);
-  }
-
-  Widget _buildVolumeCard(LanguageProvider lp) {
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    return _buildContainer([
-      Slider(
-        value: _volume, min: 0, max: 100,
-        activeColor: primaryRed,
-        onChanged: (v) => setState(() => _volume = v),
-        onChangeEnd: (v) {
-          audio.setVolume(v / 100);
-          _saveToCloud();
-        },
-      ),
-      // FIXED: Used EdgeInsets.only to avoid the 'bottom' parameter error in symmetric
-      Padding(
-        padding: const EdgeInsets.only(left: 20, right: 20, bottom: 10),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(lp.getText('vol_silent'), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            Text("${_volume.toInt()}%", style: TextStyle(fontWeight: FontWeight.bold, color: primaryRed)),
-            Text(lp.getText('vol_loud'), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
-      )
-    ]);
-  }
-
-  Widget _buildLanguageCard() {
-    return _buildContainer([
-      _langTile("English (US)", "en"),
-      const Divider(indent: 20, endIndent: 20, height: 1),
-      _langTile("Arabic (EG)", "ar"),
-    ]);
-  }
-
-  Widget _langTile(String name, String code) {
-    return RadioListTile(
-      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w500)),
-      value: name,
-      groupValue: _selectedLanguage,
-      activeColor: primaryRed,
-      onChanged: (v) => _handleLanguageChange(v.toString()),
-    );
-  }
-
-  Widget _buildSectionLabel(String text, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12, left: 5, right: 5),
+  Widget _buildVoiceHint(LanguageProvider lp) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: primaryRed.withOpacity(0.1), borderRadius: BorderRadius.circular(15)),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: Colors.grey[700]),
-          const SizedBox(width: 8),
-          Text(text, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          Icon(Icons.lightbulb_outline, color: primaryRed, size: 24),
+          const SizedBox(width: 12),
+          Expanded(child: Text(lp.getText('voice_hint_text'), style: const TextStyle(color: Colors.black87, fontSize: 13))),
         ],
       ),
     );
   }
 
-  Widget _buildContainer(List<Widget> children) {
+  Widget _buildMainVoiceToggle(LanguageProvider lp) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 15, offset: const Offset(0, 5))],
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(backgroundColor: primaryRed.withOpacity(0.1), child: Icon(Icons.mic, color: primaryRed)),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(lp.getText('voice_commands_main'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+              Text(_voiceCommands ? lp.getText('voice_status_active') : "Disabled", style: const TextStyle(color: Colors.grey, fontSize: 14)),
+            ]),
+          ),
+          Switch(value: _voiceCommands, activeColor: primaryRed, onChanged: (v) {
+            setState(() => _voiceCommands = v);
+            _saveToCloud();
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsGroup(List<Widget> children) {
+    return Container(
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5)]
       ),
       child: Column(children: children),
+    );
+  }
+
+  Widget _buildToggleTile(String title, String sub, bool val, Function(bool) onChanged, IconData icon) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.black54),
+      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+      subtitle: Text(sub, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      trailing: Switch(
+        value: val,
+        onChanged: _voiceCommands ? onChanged : null,
+        activeColor: primaryRed,
+      ),
+    );
+  }
+
+  Widget _buildSpeedSelector() {
+    List<String> speeds = ["0.5x", "0.75x", "1.0x Normal", "1.25x", "1.5x", "2.0x"];
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+      child: Wrap(
+        spacing: 8, runSpacing: 8,
+        children: speeds.map((s) => ChoiceChip(
+          label: Text(s),
+          selected: _selectedSpeed == s,
+          onSelected: (selected) {
+            if (selected) {
+              setState(() => _selectedSpeed = s);
+              double rate = double.parse(s.split('x')[0]);
+              audio.setSpeechRate(rate);
+              _saveToCloud();
+            }
+          },
+          selectedColor: primaryRed,
+          labelStyle: TextStyle(color: _selectedSpeed == s ? Colors.white : Colors.black87),
+        )).toList(),
+      ),
+    );
+  }
+
+  Widget _buildVolumeSlider(LanguageProvider lp) {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+      child: Column(
+        children: [
+          Slider(
+            value: _volume, min: 0, max: 100,
+            activeColor: primaryRed, inactiveColor: primaryRed.withOpacity(0.2),
+            onChanged: (v) => setState(() => _volume = v),
+            onChangeEnd: (v) {
+              audio.setVolume(v / 100);
+              _saveToCloud();
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text(lp.getText('vol_silent'), style: const TextStyle(color: Colors.grey)),
+              Text("${_volume.round()}%", style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
+              Text(lp.getText('vol_loud'), style: const TextStyle(color: Colors.grey)),
+            ]),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLanguageSelector() {
+    List<String> langs = ["English (US)", "Arabic (EG)"];
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+      child: Column(
+        children: langs.map((l) => RadioListTile(
+          title: Text(l),
+          value: l,
+          groupValue: _selectedLanguage,
+          activeColor: primaryRed,
+          onChanged: (v) {
+            if (v != null) _handleLanguageChange(v.toString());
+          },
+        )).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(IconData icon, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 12),
+      child: Row(children: [
+        Icon(icon, size: 18, color: Colors.black54),
+        const SizedBox(width: 8),
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      ]),
     );
   }
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Ensure this matches your file name
 import 'package:provider/provider.dart';
 
 class LanguageSelectionScreen extends StatefulWidget {
@@ -17,23 +17,22 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-announce instructions when the page opens
+    // Use the central provider to speak instructions on load
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
       audio.speak("Choose your language. Say English or Arabic.", "en");
     });
   }
 
-  // UPDATED: Logic to handle voice selection
-  void _toggleVoiceSelection() {
+  void startListening() {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    // Default to 'en' for initial detection during selection
+    // Default to 'en' for language selection logic
     audio.toggleListening("en", (words) {
       String command = words.toLowerCase();
       if (command.contains("english")) {
         selectLanguage("en");
-      } else if (command.contains("arabic") || command.contains("العربية") || command.contains("عربي")) {
+      } else if (command.contains("arabic") || command.contains("العربية")) {
         selectLanguage("ar");
       }
     });
@@ -47,27 +46,20 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
     final languageProvider = Provider.of<LanguageProvider>(context, listen: false);
 
     try {
-      // 1. Update Provider and Firestore
+      // 1. Update Database & Provider
       languageProvider.setLanguage(code);
       await DatabaseService().updateUserLanguage(code);
 
-      // 2. Audio Confirmation in the selected language
+      // 2. Audio Confirmation
       String confirmMsg = (code == 'ar') ? "تم اختيار اللغة العربية" : "English selected";
-      audio.speak(confirmMsg, code);
+      await audio.speak(confirmMsg, code);
 
-      // 3. Small delay so the user hears the confirmation before transition
-      await Future.delayed(const Duration(milliseconds: 1000));
-
-      if (mounted) {
-        // Navigate to your next screen (Tutorial or Home)
-        Navigator.pushReplacementNamed(context, '/tutorial1');
-      }
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) Navigator.pushReplacementNamed(context, '/tutorial1');
     } catch (e) {
       if (mounted) {
         setState(() => isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Error saving language: $e"))
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
   }
@@ -75,7 +67,6 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
   Widget languageButton(String flag, String text, String langCode) {
     return InkWell(
       onTap: isSaving ? null : () => selectLanguage(langCode),
-      borderRadius: BorderRadius.circular(18),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 25, vertical: 10),
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -85,7 +76,7 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.red.withOpacity(0.15),
               blurRadius: 10,
               offset: const Offset(0, 4),
             )
@@ -94,9 +85,9 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(flag, style: const TextStyle(fontSize: 24)), // Flag emoji
+            Text(flag, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
             Text(text, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
-            const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 18),
+            const Icon(Icons.mic, color: Colors.red),
           ],
         ),
       ),
@@ -116,60 +107,38 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
           children: [
             const SizedBox(height: 40),
             Container(
-              height: 100,
-              width: 100,
-              decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  shape: BoxShape.circle
-              ),
+              height: 100, width: 100,
+              decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), shape: BoxShape.circle),
               child: const Icon(Icons.language, size: 45, color: Colors.red),
             ),
             const SizedBox(height: 30),
-            const Text(
-                "Choose Your Language",
-                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)
-            ),
+            const Text("Choose Your Language", style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            const Text(
-                "إختر لغتك المفضلة",
-                style: TextStyle(fontSize: 18, color: Colors.black54)
-            ),
+            const Text("Select your preferred language", style: TextStyle(fontSize: 16, color: Colors.black54)),
             const SizedBox(height: 40),
 
-            languageButton("🇬🇧", "English", "en"),
-            languageButton("🇪🇬", "العربية", "ar"),
+            languageButton("GB", "English", "en"),
+            languageButton("SA", "Arabic", "ar"),
 
             const SizedBox(height: 40),
-
-            // Status Text
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                    audio.isListening ? Icons.graphic_eq : Icons.mic_none,
-                    color: audio.isListening ? Colors.green : Colors.grey
-                ),
+                Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.red),
                 const SizedBox(width: 10),
                 Text(
-                  audio.isListening
-                      ? "Listening..."
-                      : 'Say "English" or "Arabic"',
+                  audio.isListening ? (audio.lastWords.isEmpty ? "Listening..." : audio.lastWords) : 'Say "English" or "Arabic"',
                   style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
               ],
             ),
-
             const Spacer(),
-
             Padding(
               padding: const EdgeInsets.only(bottom: 30),
               child: FloatingActionButton(
                 backgroundColor: audio.isListening ? Colors.green : Colors.red,
-                onPressed: _toggleVoiceSelection,
-                child: Icon(
-                    audio.isListening ? Icons.stop : Icons.mic,
-                    color: Colors.white
-                ),
+                onPressed: startListening,
+                child: const Icon(Icons.mic, color: Colors.white),
               ),
             )
           ],

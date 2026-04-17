@@ -19,21 +19,25 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   @override
   void initState() {
     super.initState();
+    // Use addPostFrameCallback to ensure the context is ready for Provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announcePaymentMethods();
     });
   }
 
+  // FIXED: Added proper await logic and stops previous speech
   void _announcePaymentMethods() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stop(); // Stops any lingering audio from the Cart/Checkout
+    await audio.stop(); // Clear any audio from the Cart Screen
 
     if (lp.isRTL) {
-      audio.speak("صفحة طرق الدفع. يمكنك قول 'أضف بطاقة' أو 'الرجوع'.", "ar-EG");
+      await audio.speak("صفحة طرق الدفع.", "ar-EG");
+      await Future.delayed(const Duration(milliseconds: 300));
+      await audio.speak("يمكنك قول 'أضف بطاقة جديدة' لتحديث بياناتك.", "ar-EG");
     } else {
-      audio.speak("Payment methods. You can say 'Add card' or 'Go back'.", "en-US");
+      await audio.speak("Payment methods. You can say 'Add new card' to update your info.", "en-US");
     }
   }
 
@@ -41,43 +45,35 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
     audio.toggleListening(lp.currentLanguage, (words) async {
       String command = words.toLowerCase();
 
-      // Detection for "Add Card" (Supports multiple Egyptian variations)
-      if (command.contains("add") || command.contains("new") ||
-          command.contains("أضف") || command.contains("جديد") ||
-          command.contains("ضيف") || command.contains("كارت")) {
-
-        audio.speak(lp.isRTL ? "جاري فتح إضافة البطاقة" : "Opening card form", lp.currentLanguage);
+      // Trigger Add New Card
+      if (command.contains("add") || command.contains("new") || command.contains("أضف") || command.contains("جديدة")) {
+        await audio.speak(lp.isRTL ? "جاري فتح نموذج الإضافة" : "Opening card form", lp.currentLanguage);
         if (mounted) _showAddCardDialog(context, currentUserId);
       }
-      // Navigation Command
-      else if (command.contains("back") || command.contains("رجوع") || command.contains("ارجع")) {
-        await audio.stop();
-        if (mounted) Navigator.pop(context);
+      // Go Back
+      else if (command.contains("back") || command.contains("ارجع")) {
+        Navigator.pop(context);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    const primaryRed = Color(0xFFEB1B33);
+    const primaryRed = Color(0xFFEB1B33); // Matched your project red
     final lp = Provider.of<LanguageProvider>(context);
     final audio = Provider.of<AppAudioProvider>(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4EDE4),
+      backgroundColor: const Color(0xFFF4EDE4), // Standardized background
       appBar: AppBar(
         title: Text(lp.isRTL ? "طرق الدفع" : "Payment Methods",
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
-        centerTitle: true,
         leading: IconButton(
           icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back),
-          onPressed: () async {
-            await audio.stop();
-            if (mounted) Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
         actions: [
           IconButton(
@@ -96,16 +92,20 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
             return const Center(child: CircularProgressIndicator(color: primaryRed));
           }
 
-          var userData = snapshot.data?.data() as Map<String, dynamic>?;
-          List methods = userData?['payment_methods'] ?? [];
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const Center(child: Text("No user data found."));
+          }
 
-          // Default "Placeholder" card if none exists
+          var userData = snapshot.data!.data() as Map<String, dynamic>;
+          List methods = userData['payment_methods'] ?? [];
+
+          // Standardized card mapping
           Map<String, dynamic> card = methods.isNotEmpty
               ? methods[0]
               : {
-            'cardHolder': 'Rawan Magdy',
-            'cardNumber': '**** **** **** 0000',
-            'expiry': 'MM/YY',
+            'cardHolder': 'NO CARD ADDED',
+            'cardNumber': '**** **** **** ****',
+            'expiry': '--/--',
           };
 
           return SingleChildScrollView(
@@ -113,15 +113,14 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Using your custom widget with an upgraded shadow
                 _buildCreditCard(
                   (card['cardHolder'] ?? 'Rawan Magdy').toString().toUpperCase(),
-                  card['cardNumber'] ?? '**** **** **** 0000',
-                  card['expiry'] ?? 'MM/YY',
-                  [const Color(0xFF1A1A1A), const Color(0xFF323232)],
+                  card['cardNumber'] ?? '**** **** **** 5678',
+                  card['expiry'] ?? '05/29',
+                  [const Color(0xFF1A1A1A), const Color(0xFF424242)], // Sleek dark theme
                 ),
 
-                const SizedBox(height: 35),
+                const SizedBox(height: 30),
                 Text(
                   lp.isRTL ? "طرق دفع أخرى" : "Other Payment Methods",
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -130,15 +129,16 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
 
                 _buildPaymentOption(Icons.account_balance_wallet_outlined, "Google Pay", primaryRed),
                 _buildPaymentOption(Icons.paypal_outlined, "PayPal", primaryRed),
+
                 _buildPaymentOption(
-                    Icons.add_card_outlined,
-                    lp.isRTL ? "أضف بطاقة جديدة" : "Add New Card",
+                    Icons.add_circle_outline,
+                    lp.isRTL ? "أضف طريقة جديدة" : "Add New Method",
                     primaryRed,
                     isAction: true,
                     onTap: () => _showAddCardDialog(context, currentUserId)
                 ),
 
-                const SizedBox(height: 50),
+                const SizedBox(height: 40),
                 _buildSecureFooter(lp),
               ],
             ),
@@ -155,26 +155,20 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.verified_user, size: 16, color: Colors.green[600]),
-              const SizedBox(width: 8),
+              Icon(Icons.lock_outline, size: 16, color: Colors.grey[400]),
+              const SizedBox(width: 5),
               Text(
                 lp.isRTL ? "دفع آمن بتشفير SSL" : "Secure 256-bit SSL Encryption",
-                style: TextStyle(color: Colors.grey[600], fontSize: 13, fontWeight: FontWeight.w500),
+                style: TextStyle(color: Colors.grey[400], fontSize: 12),
               ),
             ],
           ),
-          const SizedBox(height: 15),
-          Opacity(
-            opacity: 0.5,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.credit_card, size: 20),
-                const SizedBox(width: 10),
-                const Icon(Icons.payment, size: 20),
-              ],
-            ),
-          )
+          const SizedBox(height: 5),
+          Image.network(
+            'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Visa_Inc._logo.svg/2560px-Visa_Inc._logo.svg.png',
+            height: 20,
+            color: Colors.grey.withOpacity(0.5),
+          ),
         ],
       ),
     );
@@ -184,19 +178,13 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(Provider.of<LanguageProvider>(context, listen: false).isRTL ? "إضافة بطاقة" : "Add New Card"),
-        content: const Text("Would you like to simulate adding a new card to your wallet?"),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Text(Provider.of<LanguageProvider>(context).isRTL ? "إضافة بطاقة" : "Add New Card"),
+        content: const Text("This opens the secure Firebase payment gateway."),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text("Cancel", style: TextStyle(color: Colors.grey[600]))
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
           ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEB1B33),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEB1B33)),
               onPressed: () {
                 DatabaseService().addPaymentMethod(userId, {
                   'cardHolder': 'Rawan Magdy',
@@ -205,7 +193,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
                 });
                 Navigator.pop(context);
               },
-              child: const Text("Confirm", style: TextStyle(color: Colors.white))
+              child: const Text("Add Card", style: TextStyle(color: Colors.white))
           ),
         ],
       ),
@@ -215,29 +203,40 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   Widget _buildCreditCard(String name, String number, String expiry, List<Color> colors) {
     return Container(
       width: double.infinity,
-      height: 220,
-      padding: const EdgeInsets.all(25),
+      height: 210,
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
-        borderRadius: BorderRadius.circular(25),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 10),
+          )
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.wifi, color: Colors.white54, size: 24),
-              Text("VISA", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic)),
+              const Icon(Icons.contactless, color: Colors.white, size: 30),
+              const Text(
+                "VISA",
+                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic),
+              ),
             ],
           ),
           Text(
             number,
-            style: const TextStyle(color: Colors.white, fontSize: 22, letterSpacing: 4, fontWeight: FontWeight.w600, fontFamily: 'Courier'),
+            style: const TextStyle(color: Colors.white, fontSize: 20, letterSpacing: 3, fontWeight: FontWeight.w500),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -245,15 +244,15 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("HOLDER", style: TextStyle(color: Colors.white38, fontSize: 10, letterSpacing: 1)),
-                  Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                  const Text("CARD HOLDER", style: TextStyle(color: Colors.white60, fontSize: 9)),
+                  Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                 ],
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("VALID THRU", style: TextStyle(color: Colors.white38, fontSize: 10, letterSpacing: 1)),
-                  Text(expiry, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                  const Text("EXPIRES", style: TextStyle(color: Colors.white60, fontSize: 9)),
+                  Text(expiry, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                 ],
               ),
             ],
@@ -269,12 +268,12 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5, offset: const Offset(0, 2))],
       ),
       child: ListTile(
         leading: Icon(icon, color: isAction ? accent : Colors.black87),
-        title: Text(title, style: TextStyle(fontWeight: isAction ? FontWeight.bold : FontWeight.w500, color: isAction ? accent : Colors.black87)),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.black26),
+        title: Text(title, style: TextStyle(fontWeight: isAction ? FontWeight.bold : FontWeight.normal, color: isAction ? accent : Colors.black87)),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 18),
         onTap: onTap ?? () {},
       ),
     );

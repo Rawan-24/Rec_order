@@ -3,9 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Import your central provider
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+
 import 'TrackOrderScreen.dart';
 
 class OrderHistoryPage extends StatefulWidget {
@@ -21,6 +22,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
   @override
   void initState() {
     super.initState();
+    // Auto-announce page status after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announceHistoryStatus();
     });
@@ -35,14 +37,33 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
   void _announceHistoryStatus() {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
     String msg = lp.isRTL
-        ? "سجل الطلبات. المساعد الشخصي جاهز، يمكنك قول تتبع الطلب."
-        : "Order history. Assistant mode is active, you can say track my order.";
+        ? "سجل الطلبات. يمكنك تتبع طلباتك الحالية أو إعادة طلب وجباتك السابقة."
+        : "Order history. You can track active orders or reorder from your past meals.";
     audio.speak(msg, lp.currentLanguage);
+  }
+
+  void _handleVoiceCommand(BuildContext context, AppAudioProvider audio) {
+    audio.toggleListening(lp.currentLanguage, (words) async {
+      String command = words.toLowerCase();
+
+      // Voice Command: Track Order
+      if (command.contains("تتبع") || command.contains("فين") || command.contains("track")) {
+        audio.speak(lp.isRTL ? "بفتح صفحة التتبع" : "Opening tracking page", lp.currentLanguage);
+        String? id = await DatabaseService().getActiveOrderId();
+        if (mounted && id != null) {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: id)));
+        } else {
+          audio.speak(lp.isRTL ? "لا توجد طلبات نشطة حالياً" : "No active orders found", lp.currentLanguage);
+        }
+      }
+      // Add more specific history commands here if needed
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     const primaryRed = Color(0xFFD32F2F);
+    final audio = Provider.of<AppAudioProvider>(context);
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
@@ -58,10 +79,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
           backgroundColor: primaryRed,
           foregroundColor: Colors.white,
           elevation: 0,
-          leading: IconButton(
-            icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back),
-            onPressed: () => Navigator.pop(context),
-          ),
           bottom: TabBar(
             indicatorColor: Colors.white,
             indicatorWeight: 3,
@@ -77,7 +94,12 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             _buildOrderList(DatabaseService().getPastOrders(user.uid), primaryRed, false),
           ],
         ),
-        // Local FAB removed. GlobalVoiceWrapper handles the mic now.
+        // --- ADDED FLOATING MICROPHONE ---
+        floatingActionButton: FloatingActionButton(
+          backgroundColor: audio.isListening ? Colors.green : primaryRed,
+          onPressed: () => _handleVoiceCommand(context, audio),
+          child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white),
+        ),
       ),
     );
   }
@@ -103,7 +125,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
         }
 
         return ListView(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 120), // Added bottom padding
+          padding: const EdgeInsets.all(16),
           children: snapshot.data!.docs.map((doc) {
             final data = doc.data() as Map<String, dynamic>;
             return _buildOrderCard(
@@ -115,7 +137,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                   : lp.getText('recently'),
               status: data['status'] ?? "Pending",
               items: "${data['items']?.length ?? 0} ${lp.getText('items_label')}",
-              price: "${(data['totalPrice'] ?? 0).toStringAsFixed(0)} EGP",
+              price: "\$${(data['totalPrice'] ?? 0).toStringAsFixed(2)}",
               accent: accent,
               showTrackButton: isActive,
             );
@@ -149,6 +171,10 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
         statusColor = Colors.green;
         statusText = lp.getText('status_delivered');
         break;
+      case 'cancelled':
+        statusColor = Colors.red;
+        statusText = lp.getText('status_cancelled');
+        break;
       case 'on the way':
         statusColor = Colors.blue;
         statusText = lp.getText('status_on_way');
@@ -167,6 +193,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       ),
       child: InkWell(
         onTap: () {
+          // Speak status when tapping the card
           String speechStatus = lp.isRTL
               ? "طلبك من $restaurant حالته حالياً هي $statusText"
               : "Your order from $restaurant is currently $statusText";
@@ -205,7 +232,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                   if (showTrackButton)
                     ElevatedButton(
                       onPressed: () {
-                        audio.speak(lp.isRTL ? "جاري فتح تتبع الطلب" : "Opening tracking", lp.currentLanguage);
+                        audio.speak(lp.isRTL ? "جاري فتح تفاصيل التتبع" : "Opening tracking details", lp.currentLanguage);
                         Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
                       },
                       style: ElevatedButton.styleFrom(
@@ -218,7 +245,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                   else
                     OutlinedButton(
                       onPressed: () {
-                        audio.speak(lp.isRTL ? "إعادة الطلب" : "Reordering", lp.currentLanguage);
+                        audio.speak(lp.isRTL ? "إعادة طلب من $restaurant" : "Reordering from $restaurant", lp.currentLanguage);
                       },
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: accent),

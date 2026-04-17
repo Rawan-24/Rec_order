@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/AudioProvider.dart'; // Import Provider
 
 class PersonalInformationPage extends StatefulWidget {
   const PersonalInformationPage({super.key});
@@ -19,51 +19,45 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
 
   bool _isLoading = true;
   final User? _user = FirebaseAuth.instance.currentUser;
-  final Color primaryRed = const Color(0xFFEB1B33);
 
   @override
   void initState() {
     super.initState();
     _fetchUserData();
+    // Announce the page goal
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announcePage();
     });
   }
 
-  void _announcePage() async {
+  void _announcePage() {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
-    await audio.stop();
     String msg = lp.isRTL
-        ? "هنا يمكنك تعديل بياناتك. قل 'تغيير الاسم' أو 'حفظ'."
-        : "Profile settings. Say 'Change name' or 'Save profile'.";
+        ? "معلوماتك الشخصية. يمكنك قول 'تغيير الاسم' أو 'حفظ الملف الشخصي'."
+        : "Your personal information. You can say 'Change name' or 'Save profile'.";
     audio.speak(msg, lp.currentLanguage);
   }
 
   void _handleVoiceInput(AppAudioProvider audio, LanguageProvider lp) {
-    audio.toggleListening(lp.currentLanguage, (words) async {
+    audio.toggleListening(lp.currentLanguage, (words) {
       String command = words.toLowerCase();
 
-      // Improved Name Detection
+      // Logic for updating specific fields via voice
       if (command.contains("name") || command.contains("اسم")) {
-        // Regex to remove the "command" words and keep the actual name
-        String newName = words.replaceAll(RegExp(r'(change|update|name|تغيير|اسم|عدل)', caseSensitive: false), '').trim();
+        String newName = words.split(RegExp(r'name|اسم')).last.trim();
         if (newName.isNotEmpty) {
           setState(() => _nameController.text = newName);
-          audio.speak(lp.isRTL ? "تم تغيير الاسم إلى $newName" : "Name changed to $newName", lp.currentLanguage);
+          audio.speak(lp.isRTL ? "تم تحديث الاسم" : "Name updated", lp.currentLanguage);
         }
-      }
-      // Improved Phone Detection (removes spaces from spoken numbers)
-      else if (command.contains("phone") || command.contains("هاتف") || command.contains("موبايل") || command.contains("رقم")) {
+      } else if (command.contains("phone") || command.contains("هاتف") || command.contains("موبايل")) {
+        // Simple regex to extract numbers
         String newPhone = words.replaceAll(RegExp(r'[^0-9]'), '');
         if (newPhone.isNotEmpty) {
           setState(() => _phoneController.text = newPhone);
-          audio.speak(lp.isRTL ? "تم تحديث الرقم" : "Phone updated", lp.currentLanguage);
+          audio.speak(lp.isRTL ? "تم تحديث الهاتف" : "Phone updated", lp.currentLanguage);
         }
-      }
-      // Save command
-      else if (command.contains("save") || command.contains("حفظ") || command.contains("تحديث")) {
+      } else if (command.contains("save") || command.contains("حفظ")) {
         _updateProfile(lp);
       }
     });
@@ -89,35 +83,33 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
         setState(() => _isLoading = false);
       }
     } catch (e) {
+      debugPrint("Error fetching user: $e");
       setState(() => _isLoading = false);
     }
   }
 
   Future<void> _updateProfile(LanguageProvider lp) async {
-    if (_nameController.text.isEmpty) return;
-
     setState(() => _isLoading = true);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(_user!.uid).set({
+      await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({
         'name': _nameController.text.trim(),
         'email': _emailController.text.trim(),
         'phone': _phoneController.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
 
-      audio.speak(lp.isRTL ? "تم حفظ البيانات بنجاح" : "Profile saved successfully", lp.currentLanguage);
+      audio.speak(lp.getText('profile_update_success'), lp.currentLanguage);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(lp.isRTL ? "تم التحديث" : "Profile Updated"), backgroundColor: Colors.green),
+          SnackBar(content: Text(lp.getText('profile_update_success')), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+          SnackBar(content: Text("${lp.getText('profile_update_fail')}: $e"), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -126,7 +118,7 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
   }
 
   String _getInitials(String name) {
-    if (name.trim().isEmpty) return "??";
+    if (name.isEmpty) return "??";
     List<String> names = name.trim().split(" ");
     if (names.length > 1) {
       return "${names[0][0]}${names[1][0]}".toUpperCase();
@@ -135,136 +127,123 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
     final audio = Provider.of<AppAudioProvider>(context);
+    const primaryRed = Color(0xFFD32F2F);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: Text(lp.isRTL ? "المعلومات الشخصية" : "Personal Info",
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        title: Text(lp.getText('personal_info_title'), style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: primaryRed,
+        foregroundColor: Colors.white,
         elevation: 0,
-        centerTitle: true,
         actions: [
           if (!_isLoading)
-            IconButton(
+            TextButton(
               onPressed: () => _updateProfile(lp),
-              icon: Icon(Icons.check, color: primaryRed),
+              child: Text(lp.getText('save_button'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: primaryRed))
+          ? const Center(child: CircularProgressIndicator(color: primaryRed))
           : SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 25),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            const SizedBox(height: 30),
-            // Avatar with Voice Animation
+            const SizedBox(height: 20),
             Center(
               child: GestureDetector(
                 onTap: () => _handleVoiceInput(audio, lp),
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: audio.isListening ? Colors.green : primaryRed.withOpacity(0.2),
-                          width: 3,
-                        ),
-                      ),
+                    CircleAvatar(
+                      radius: 55,
+                      backgroundColor: audio.isListening ? Colors.green : primaryRed,
                       child: CircleAvatar(
                         radius: 50,
-                        backgroundColor: primaryRed.withOpacity(0.1),
+                        backgroundColor: Colors.white,
                         child: Text(
                           _getInitials(_nameController.text),
-                          style: TextStyle(fontSize: 32, color: primaryRed, fontWeight: FontWeight.bold),
+                          style: const TextStyle(fontSize: 32, color: primaryRed, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
                     Positioned(
                       bottom: 0,
-                      right: 5,
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: audio.isListening ? Colors.green : primaryRed,
-                        child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white, size: 18),
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(color: primaryRed, shape: BoxShape.circle),
+                        child: Icon(
+                            audio.isListening ? Icons.graphic_eq : Icons.mic,
+                            color: Colors.white,
+                            size: 20
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 15),
+            const SizedBox(height: 10),
             Text(
-              audio.isListening ? (lp.isRTL ? "أنا أسمعك..." : "I'm listening...") : (lp.isRTL ? "اضغط للمتحدث الصوتي" : "Tap for Voice Assistant"),
-              style: TextStyle(color: audio.isListening ? Colors.green : Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+              audio.isListening ? "Listening..." : "Tap avatar to use voice",
+              style: TextStyle(color: audio.isListening ? Colors.green : Colors.grey, fontSize: 12),
             ),
+            const SizedBox(height: 30),
+            _buildEditField(lp.getText('full_name_label'), _nameController, Icons.person_outline),
+            const SizedBox(height: 20),
+            _buildEditField(lp.getText('email_label'), _emailController, Icons.email_outlined),
+            const SizedBox(height: 20),
+            _buildEditField(lp.getText('phone_label'), _phoneController, Icons.phone_android_outlined),
             const SizedBox(height: 40),
-
-            _buildEditField(lp.isRTL ? "الاسم بالكامل" : "Full Name", _nameController, Icons.person_outline),
-            const SizedBox(height: 20),
-            _buildEditField(lp.isRTL ? "البريد الإلكتروني" : "Email Address", _emailController, Icons.email_outlined, isEnabled: false),
-            const SizedBox(height: 20),
-            _buildEditField(lp.isRTL ? "رقم الهاتف" : "Phone Number", _phoneController, Icons.phone_android_outlined),
-
-            const SizedBox(height: 50),
-            _buildSecurityNote(lp),
+            Text(
+              lp.getText('data_protection_note'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSecurityNote(LanguageProvider lp) {
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.blueGrey.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.shield_outlined, size: 20, color: Colors.blueGrey),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              lp.isRTL ? "بياناتك محمية ومخزنة بشكل آمن" : "Your data is encrypted and stored securely.",
-              style: const TextStyle(color: Colors.blueGrey, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEditField(String label, TextEditingController controller, IconData icon, {bool isEnabled = true}) {
+  Widget _buildEditField(String label, TextEditingController controller, IconData icon) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 14)),
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+        const SizedBox(height: 8),
         TextField(
           controller: controller,
-          enabled: isEnabled,
           onChanged: (val) => setState(() {}),
           decoration: InputDecoration(
-            prefixIcon: Icon(icon, color: isEnabled ? primaryRed : Colors.grey),
+            prefixIcon: Icon(icon, color: const Color(0xFFD32F2F)),
             filled: true,
-            fillColor: isEnabled ? Colors.white : Colors.grey[100],
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: Colors.black.withOpacity(0.05))),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: primaryRed, width: 1.5)),
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[200]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFD32F2F), width: 2),
+            ),
           ),
         ),
       ],
