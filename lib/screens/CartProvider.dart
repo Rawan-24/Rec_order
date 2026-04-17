@@ -44,4 +44,11 @@ class CartProvider with ChangeNotifier {
     currentRestaurant = ""; // Resets the restaurant lock if you have one
     notifyListeners(); // Refreshes the UI across the whole app
   }
+  // Inside your CartProvider class
+  void addMultipleItems(List<CartItem> newItems) {
+    for (var item in newItems) {
+      addItem(item); // Reuses your existing logic for duplicate checking
+    }
+    notifyListeners();
+  }
 }

@@ -3,10 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart'; // Import your central provider
+import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/screens/CartProvider.dart';
+import 'package:grad_project/screens/CartScreen.dart';
+import 'package:grad_project/Models/CartItem.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-
 import 'TrackOrderScreen.dart';
 
 class OrderHistoryPage extends StatefulWidget {
@@ -22,7 +24,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
   @override
   void initState() {
     super.initState();
-    // Auto-announce page status after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announceHistoryStatus();
     });
@@ -46,7 +47,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     audio.toggleListening(lp.currentLanguage, (words) async {
       String command = words.toLowerCase();
 
-      // Voice Command: Track Order
       if (command.contains("تتبع") || command.contains("فين") || command.contains("track")) {
         audio.speak(lp.isRTL ? "بفتح صفحة التتبع" : "Opening tracking page", lp.currentLanguage);
         String? id = await DatabaseService().getActiveOrderId();
@@ -56,7 +56,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
           audio.speak(lp.isRTL ? "لا توجد طلبات نشطة حالياً" : "No active orders found", lp.currentLanguage);
         }
       }
-      // Add more specific history commands here if needed
     });
   }
 
@@ -94,7 +93,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             _buildOrderList(DatabaseService().getPastOrders(user.uid), primaryRed, false),
           ],
         ),
-        // --- ADDED FLOATING MICROPHONE ---
         floatingActionButton: FloatingActionButton(
           backgroundColor: audio.isListening ? Colors.green : primaryRed,
           onPressed: () => _handleVoiceCommand(context, audio),
@@ -131,15 +129,9 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             return _buildOrderCard(
               context: context,
               orderId: doc.id,
-              restaurant: data['restaurantName'] ?? lp.getText('unknown_restaurant'),
-              date: data['timestamp'] != null
-                  ? DateFormat('MMM d, yyyy').format((data['timestamp'] as Timestamp).toDate())
-                  : lp.getText('recently'),
-              status: data['status'] ?? "Pending",
-              items: "${data['items']?.length ?? 0} ${lp.getText('items_label')}",
-              price: "\$${(data['totalPrice'] ?? 0).toStringAsFixed(2)}",
+              data: data,
               accent: accent,
-              showTrackButton: isActive,
+              isActive: isActive,
             );
           }).toList(),
         );
@@ -150,38 +142,28 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
   Widget _buildOrderCard({
     required BuildContext context,
     required String orderId,
-    required String restaurant,
-    required String date,
-    required String status,
-    required String items,
-    required String price,
+    required Map<String, dynamic> data,
     required Color accent,
-    bool showTrackButton = false,
+    required bool isActive,
   }) {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    final cart = Provider.of<CartProvider>(context, listen: false);
+
+    String restaurant = data['restaurantName'] ?? lp.getText('unknown_restaurant');
+    String status = data['status'] ?? "Pending";
+    String price = "${(data['totalPrice'] ?? 0).toStringAsFixed(2)} EGP";
+    String date = data['timestamp'] != null
+        ? DateFormat('MMM d, yyyy').format((data['timestamp'] as Timestamp).toDate())
+        : lp.getText('recently');
+
     Color statusColor;
     String statusText;
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
     switch (status.toLowerCase()) {
-      case 'preparing':
-        statusColor = Colors.orange;
-        statusText = lp.getText('status_preparing');
-        break;
-      case 'delivered':
-        statusColor = Colors.green;
-        statusText = lp.getText('status_delivered');
-        break;
-      case 'cancelled':
-        statusColor = Colors.red;
-        statusText = lp.getText('status_cancelled');
-        break;
-      case 'on the way':
-        statusColor = Colors.blue;
-        statusText = lp.getText('status_on_way');
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusText = status;
+      case 'preparing': statusColor = Colors.orange; statusText = lp.getText('status_preparing'); break;
+      case 'delivered': statusColor = Colors.green; statusText = lp.getText('status_delivered'); break;
+      case 'cancelled': statusColor = Colors.red; statusText = lp.getText('status_cancelled'); break;
+      case 'on the way': statusColor = Colors.blue; statusText = lp.getText('status_on_way'); break;
+      default: statusColor = Colors.grey; statusText = status;
     }
 
     return Card(
@@ -193,7 +175,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       ),
       child: InkWell(
         onTap: () {
-          // Speak status when tapping the card
           String speechStatus = lp.isRTL
               ? "طلبك من $restaurant حالته حالياً هي $statusText"
               : "Your order from $restaurant is currently $statusText";
@@ -212,7 +193,8 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                     children: [
                       Text(restaurant, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
                       const SizedBox(height: 4),
-                      Text("$items • $date", style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                      Text("${(data['items'] as List).length} ${lp.getText('items_label')} • $date",
+                          style: const TextStyle(color: Colors.grey, fontSize: 13)),
                     ],
                   ),
                   Text(price, style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 16)),
@@ -229,7 +211,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                       Text(statusText, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 13)),
                     ],
                   ),
-                  if (showTrackButton)
+                  if (isActive)
                     ElevatedButton(
                       onPressed: () {
                         audio.speak(lp.isRTL ? "جاري فتح تفاصيل التتبع" : "Opening tracking details", lp.currentLanguage);
@@ -245,7 +227,30 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                   else
                     OutlinedButton(
                       onPressed: () {
-                        audio.speak(lp.isRTL ? "إعادة طلب من $restaurant" : "Reordering from $restaurant", lp.currentLanguage);
+                        // 1. Voice feedback (Immediate start, doesn't block code)
+                        audio.speak(
+                            lp.isRTL ? "تم إضافة الطلب إلى السلة" : "Adding items to your cart",
+                            lp.currentLanguage
+                        );
+
+                        // 2. Add items to cart
+                        final List<dynamic> orderItemsData = data['items'] ?? [];
+                        for (var itemMap in orderItemsData) {
+                          cart.addItem(CartItem(
+                            id: DateTime.now().millisecondsSinceEpoch.toString() + (itemMap['name'] ?? ""),
+                            name: itemMap['name'] ?? "Unknown",
+                            price: (itemMap['price'] as num?)?.toDouble() ?? 0.0,
+                            quantity: itemMap['quantity'] ?? 1,
+                            restaurant: restaurant,
+                            details: itemMap['details'] ?? "",
+                            image: itemMap['image'] ?? "",
+                          ));
+                        }
+
+                        // 3. Navigation (Immediate)
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (context) => const CartScreen()),
+                        );
                       },
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: accent),
