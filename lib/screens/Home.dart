@@ -270,7 +270,7 @@ class _HomeContentState extends State<HomeContent> {
             Row(
               children: [
                 buildQuickAction(context, lp.getText('action_order'), Icons.restaurant, const Color(0xFFEB1B33), () {
-                  audio.speak(lp.isRTL ? "يلا نطلب أكل" : "Let's order some food", lp.currentLanguage);
+                  audio.speak(lp.isRTL ? "طلب الطعام" : "Let's order some food", lp.currentLanguage);
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const RestaurantsScreen()));
                 }),
                 const SizedBox(width: 16),
