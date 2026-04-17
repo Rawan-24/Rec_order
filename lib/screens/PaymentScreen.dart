@@ -6,6 +6,9 @@ import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/providers/AudioProvider.dart';
 import 'package:grad_project/screens/CartProvider.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
+import 'package:grad_project/Models/AddressModel.dart';
+
+import 'Delivery_Address.dart';
 
 class PaymentScreen extends StatefulWidget {
   static const String routeName = "PaymentScreen";
@@ -27,12 +30,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
     });
   }
 
-  // FIXED: Added await and stop logic for seamless voice transitions
   void _announcePayment() async {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stop(); // Clear any previous screen audio
+    await audio.stop();
 
     if (lp.isRTL) {
       await audio.speak("لقد وصلت لصفحة الدفع.", "ar-EG");
@@ -47,7 +49,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
     audio.toggleListening(lp.currentLanguage, (words) async {
       String command = words.toLowerCase();
 
-      // Switch Payment Methods
       if (command.contains("cash") || command.contains("كاش") || command.contains("نقدي")) {
         setState(() => selectedMethod = 'cash');
         await audio.speak(lp.isRTL ? "تم التبديل للدفع النقدي" : "Switched to cash", lp.currentLanguage);
@@ -56,13 +57,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
         await audio.speak(lp.isRTL ? "تم التبديل للدفع بالبطاقة" : "Switched to card payment", lp.currentLanguage);
       }
 
-      // Voice PIN Confirmation
       if (command.contains("pin") || command.contains("confirm") || command.contains("تأكيد")) {
         setState(() => isVoiceConfirmed = true);
         await audio.speak(lp.isRTL ? "تم التأكيد بالبصمة الصوتية" : "Voice PIN confirmed", lp.currentLanguage);
       }
 
-      // Final Order Command
       if (command.contains("place order") || command.contains("اطلب الآن")) {
         _processPayment(lp, cart);
       }
@@ -71,43 +70,95 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   Future<void> _processPayment(LanguageProvider lp, CartProvider cart) async {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    User? user = FirebaseAuth.instance.currentUser;
 
-    if (selectedMethod == 'cash' || isVoiceConfirmed) {
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        try {
-          showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33))));
+    if (user == null) return;
 
-          String orderId = await DatabaseService().placeOrder(
-            userId: user.uid,
-            total: cart.total,
-            paymentMethod: selectedMethod,
-            restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
-                ? "Multi-Restaurant Order"
-                : cart.items.first.restaurant,
-            restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
-            items: cart.items,
-            cartItems: cart.items,
-          );
+    try {
+      // 1. Show Loading indicator immediately
+      showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFFEB1B33)))
+      );
 
-          await audio.speak(lp.isRTL ? "تم تأكيد طلبك بنجاح" : "Your order has been placed successfully", lp.currentLanguage);
+      // 2. CHECK: Does the user have a delivery address?
+      final addresses = await DatabaseService().getAddresses(user.uid).first;
 
-          cart.clearCart();
-          if (mounted) {
-            Navigator.pop(context); // Remove loading
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
-          }
-        } catch (e) {
-          if (mounted) {
-            Navigator.pop(context);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${lp.getText('error')}: $e")));
-          }
-        }
+      if (addresses.isEmpty) {
+        if (mounted) Navigator.pop(context); // Remove loading
+
+        await audio.speak(
+            lp.isRTL ? "من فضلك أضف عنواناً أولاً" : "Please add a delivery address first",
+            lp.currentLanguage
+        );
+
+        if (mounted) _showNoAddressDialog(lp);
+        return;
       }
-    } else {
-      await audio.speak(lp.isRTL ? "من فضلك أكد البصمة الصوتية أولاً" : "Please confirm your voice PIN first", lp.currentLanguage);
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('confirm_voice_first'))));
+
+      // 3. PROCEED: If address exists, check payment verification
+      if (selectedMethod == 'cash' || isVoiceConfirmed) {
+        String orderId = await DatabaseService().placeOrder(
+          userId: user.uid,
+          total: cart.total,
+          paymentMethod: selectedMethod,
+          restaurantName: cart.items.map((i) => i.restaurant).toSet().length > 1
+              ? "Multi-Restaurant Order"
+              : cart.items.first.restaurant,
+          restaurantImage: cart.items.isNotEmpty ? cart.items.first.image : "",
+          items: cart.items,
+          cartItems: cart.items,
+        );
+
+        await audio.speak(lp.isRTL ? "تم تأكيد طلبك بنجاح" : "Your order has been placed successfully", lp.currentLanguage);
+
+        cart.clearCart();
+        if (mounted) {
+          Navigator.pop(context); // Remove loading
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: orderId)));
+        }
+      } else {
+        if (mounted) Navigator.pop(context); // Remove loading
+        await audio.speak(lp.isRTL ? "من فضلك أكد البصمة الصوتية أولاً" : "Please confirm your voice PIN first", lp.currentLanguage);
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(lp.getText('confirm_voice_first'))));
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${lp.getText('error')}: $e")));
+      }
     }
+  }
+
+  void _showNoAddressDialog(LanguageProvider lp) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(lp.isRTL ? "العنوان مطلوب" : "Address Required", style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(lp.isRTL
+            ? "يجب إضافة عنوان توصيل واحد على الأقل قبل إتمام الطلب."
+            : "You must add at least one delivery address before placing your order."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(lp.getText('cancel'), style: const TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEB1B33),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const DeliveryAddressesPage()));
+            },
+            child: Text(lp.isRTL ? "إضافة عنوان" : "Add Address", style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -191,6 +242,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
+  // UI Helper widgets remain unchanged to maintain your design...
   Widget _buildVoiceHint(AppAudioProvider audio, LanguageProvider lp) {
     return Container(
       padding: const EdgeInsets.all(12),

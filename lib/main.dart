@@ -1,7 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/firebase_options.dart';
-import 'package:grad_project/providers/GlobalVoiceWrapper.dart';
 import 'package:grad_project/screens/Home.dart';
 import 'package:grad_project/screens/Language_Selection.dart';
 import 'package:grad_project/screens/Sign_in.dart';
@@ -69,7 +68,7 @@ class MyApp extends StatelessWidget {
           // FIX: Nested builders to include both Connectivity and Voice
           builder: (context, child) {
             return ConnectivityWrapper(
-              child: GlobalVoiceWrapper(child: child!),
+              child: ConnectivityWrapper(child: child!),
             );
           },
           initialRoute: '/',

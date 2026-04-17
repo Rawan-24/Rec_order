@@ -19,7 +19,6 @@ class MenuItem extends StatefulWidget {
 
 class _MenuItemState extends State<MenuItem> {
   late LanguageProvider lp;
-
   String selectedSize = 'Medium';
   int quantity = 1;
   Set<String> selectedAddOns = {};
@@ -27,9 +26,7 @@ class _MenuItemState extends State<MenuItem> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announceItem();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) { _announceItem(); });
   }
 
   @override
@@ -40,39 +37,30 @@ class _MenuItemState extends State<MenuItem> {
 
   void _announceItem() async {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
     if (lp.isRTL) {
-      // Speak the intro in Arabic
       await audio.speak("لقد اخترت", "ar-EG");
-      // Speak the item name in English
       await audio.speak(widget.item.name, "en-US");
-      // Continue the price and question in Arabic
       await audio.speak("السعر يبدأ من ${widget.item.price} جنيه مصري. هل تود إضافة أي شيء؟", "ar-EG");
     } else {
-      audio.speak(
-          "You selected ${widget.item.name}. Price starts at ${widget.item.price} EGP. Would you like to add anything?",
-          "en-US"
-      );
+      audio.speak("You selected ${widget.item.name}. Price starts at ${widget.item.price} EGP. Would you like to add anything?", "en-US");
     }
   }
 
   void _handleVoiceSelection(AppAudioProvider audio) {
-    audio.toggleListening(lp.currentLanguage, (words) {
+    audio.toggleListening(lp.currentLanguage, (words) async {
       String command = words.toLowerCase();
 
-      // Size Selection
       if (command.contains("small") || command.contains("صغير")) {
         setState(() => selectedSize = 'Small');
-        audio.speak(lp.isRTL ? "تم اختيار الحجم الصغير" : "Selected small size", lp.currentLanguage);
+        await audio.speak(lp.isRTL ? "تم اختيار الحجم الصغير" : "Selected small size", lp.currentLanguage);
       } else if (command.contains("medium") || command.contains("متوسط")) {
         setState(() => selectedSize = 'Medium');
-        audio.speak(lp.isRTL ? "تم اختيار الحجم المتوسط" : "Selected medium size", lp.currentLanguage);
+        await audio.speak(lp.isRTL ? "تم اختيار الحجم المتوسط" : "Selected medium size", lp.currentLanguage);
       } else if (command.contains("large") || command.contains("كبير")) {
         setState(() => selectedSize = 'Large');
-        audio.speak(lp.isRTL ? "تم اختيار الحجم الكبير" : "Selected large size", lp.currentLanguage);
+        await audio.speak(lp.isRTL ? "تم اختيار الحجم الكبير" : "Selected large size", lp.currentLanguage);
       }
 
-      // Add-ons: Read the addon name in English for better pronunciation
       for (var addon in widget.item.availableAddOns.keys) {
         if (command.contains(addon.toLowerCase())) {
           setState(() {
@@ -93,7 +81,6 @@ class _MenuItemState extends State<MenuItem> {
     });
   }
 
-  // Helper to handle mixed-language feedback for addons
   void _announceAddonStatus(AppAudioProvider audio, String addon, bool added) async {
     if (lp.isRTL) {
       await audio.speak(added ? "تمت إضافة" : "تم حذف", "ar-EG");
@@ -118,13 +105,12 @@ class _MenuItemState extends State<MenuItem> {
     ));
 
     audio.speak(lp.isRTL ? "تمت الإضافة للسلة" : "Added to cart", lp.currentLanguage);
-
     Navigator.push(context, MaterialPageRoute(builder: (context) => const CartScreen()));
   }
 
   double get totalPrice {
     double total = widget.item.price;
-    if (selectedSize == 'Large') total += 50.0; // Updated to a realistic EGP extra charge
+    if (selectedSize == 'Large') total += 50.0;
     for (var addon in selectedAddOns) {
       total += widget.item.availableAddOns[addon] ?? 0.0;
     }
@@ -151,10 +137,7 @@ class _MenuItemState extends State<MenuItem> {
                   right: lp.isRTL ? 20 : null,
                   child: CircleAvatar(
                     backgroundColor: const Color(0xFFF4EDE4),
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.black),
-                      onPressed: () => Navigator.pop(context),
-                    ),
+                    child: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
                   ),
                 ),
                 Positioned(
@@ -176,12 +159,9 @@ class _MenuItemState extends State<MenuItem> {
                 children: [
                   Text(widget.item.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  // Updated Currency to EGP
-                  Text("${widget.item.price.toStringAsFixed(2)} EGP",
-                      style: const TextStyle(fontSize: 20, color: primaryRed, fontWeight: FontWeight.bold)),
+                  Text("${widget.item.price.toStringAsFixed(2)} EGP", style: const TextStyle(fontSize: 20, color: primaryRed, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   Text(widget.item.description, style: const TextStyle(color: Colors.grey)),
-
                   const SizedBox(height: 25),
                   Text(lp.getText('select_size'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 15),
@@ -189,23 +169,12 @@ class _MenuItemState extends State<MenuItem> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: ['Small', 'Medium', 'Large'].map((size) => _buildSizeButton(size)).toList(),
                   ),
-
                   const SizedBox(height: 25),
                   Text(lp.getText('add_ons'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ...widget.item.availableAddOns.keys.map((addon) =>
-                      _buildAddOnTile(addon, widget.item.availableAddOns[addon]!)
-                  ),
-
+                  ...widget.item.availableAddOns.keys.map((addon) => _buildAddOnTile(addon, widget.item.availableAddOns[addon]!)),
                   const SizedBox(height: 25),
                   Text(lp.getText('quantity'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      IconButton(onPressed: () => setState(() { if(quantity > 1) quantity--; }), icon: const Icon(Icons.remove_circle_outline)),
-                      Container(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 10), decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(10)), child: Text("$quantity", style: const TextStyle(fontSize: 18))),
-                      IconButton(onPressed: () => setState(() => quantity++), icon: const Icon(Icons.add_circle_outline, color: primaryRed)),
-                    ],
-                  ),
+                  _buildQuantitySelector(primaryRed),
                   const SizedBox(height: 100),
                 ],
               ),
@@ -214,6 +183,17 @@ class _MenuItemState extends State<MenuItem> {
         ),
       ),
       bottomSheet: _buildBottomBar(),
+    );
+  }
+
+  Widget _buildQuantitySelector(Color primaryRed) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(onPressed: () => setState(() { if(quantity > 1) quantity--; }), icon: const Icon(Icons.remove_circle_outline)),
+        Container(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 10), decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(10)), child: Text("$quantity", style: const TextStyle(fontSize: 18))),
+        IconButton(onPressed: () => setState(() => quantity++), icon: Icon(Icons.add_circle_outline, color: primaryRed)),
+      ],
     );
   }
 
@@ -231,8 +211,7 @@ class _MenuItemState extends State<MenuItem> {
         ),
         child: Column(
           children: [
-            Text(lp.getText('size_${size.toLowerCase()}'),
-                style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
+            Text(lp.getText('size_${size.toLowerCase()}'), style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
             if (size == 'Large') Text("+50 EGP", style: TextStyle(color: isSelected ? Colors.white70 : Colors.grey, fontSize: 12)),
           ],
         ),
@@ -264,38 +243,23 @@ class _MenuItemState extends State<MenuItem> {
   }
 
   Widget _buildBottomBar() {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: double.infinity),
-      child: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: Colors.black12, width: 0.5)),
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.black12, width: 0.5))),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 25),
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFEB1B33),
+          minimumSize: const Size(double.infinity, 60),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 25),
-        child: ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFEB1B33),
-            minimumSize: const Size(double.infinity, 60),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            elevation: 0,
-          ),
-          onPressed: _addToCart,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.shopping_cart_outlined, color: Colors.white),
-                  const SizedBox(width: 10),
-                  Text(lp.getText('add_to_cart'),
-                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              Text("${totalPrice.toStringAsFixed(2)} EGP",
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            ],
-          ),
+        onPressed: _addToCart,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(children: [const Icon(Icons.shopping_cart_outlined, color: Colors.white), const SizedBox(width: 10), Text(lp.getText('add_to_cart'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))]),
+            Text("${totalPrice.toStringAsFixed(2)} EGP", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          ],
         ),
       ),
     );

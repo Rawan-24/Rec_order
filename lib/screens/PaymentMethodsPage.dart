@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
-import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/providers/LanguageProvider.dart'; // Import
+import 'package:grad_project/providers/AudioProvider.dart';    // Import
 import 'package:provider/provider.dart';
 
 class PaymentMethodsPage extends StatefulWidget {
@@ -19,36 +19,30 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   @override
   void initState() {
     super.initState();
-    // Use addPostFrameCallback to ensure the context is ready for Provider
+    // Start the voice feedback when the user lands on the page
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announcePaymentMethods();
     });
   }
 
-  // FIXED: Added proper await logic and stops previous speech
-  void _announcePaymentMethods() async {
+  void _announcePaymentMethods() {
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stop(); // Clear any audio from the Cart Screen
-
-    if (lp.isRTL) {
-      await audio.speak("صفحة طرق الدفع.", "ar-EG");
-      await Future.delayed(const Duration(milliseconds: 300));
-      await audio.speak("يمكنك قول 'أضف بطاقة جديدة' لتحديث بياناتك.", "ar-EG");
-    } else {
-      await audio.speak("Payment methods. You can say 'Add new card' to update your info.", "en-US");
-    }
+    String msg = lp.isRTL
+        ? "صفحة طرق الدفع. يمكنك قول 'أضف بطاقة جديدة' لتحديث بياناتك."
+        : "Payment methods. You can say 'Add new card' to update your info.";
+    audio.speak(msg, lp.currentLanguage);
   }
 
   void _handleVoiceInteraction(AppAudioProvider audio, LanguageProvider lp) {
-    audio.toggleListening(lp.currentLanguage, (words) async {
+    audio.toggleListening(lp.currentLanguage, (words) {
       String command = words.toLowerCase();
 
       // Trigger Add New Card
       if (command.contains("add") || command.contains("new") || command.contains("أضف") || command.contains("جديدة")) {
-        await audio.speak(lp.isRTL ? "جاري فتح نموذج الإضافة" : "Opening card form", lp.currentLanguage);
-        if (mounted) _showAddCardDialog(context, currentUserId);
+        audio.speak(lp.isRTL ? "جاري فتح نموذج الإضافة" : "Opening card form", lp.currentLanguage);
+        _showAddCardDialog(context, currentUserId);
       }
       // Go Back
       else if (command.contains("back") || command.contains("ارجع")) {
@@ -59,26 +53,20 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
 
   @override
   Widget build(BuildContext context) {
-    const primaryRed = Color(0xFFEB1B33); // Matched your project red
+    const primaryRed = Color(0xFFD32F2F);
     final lp = Provider.of<LanguageProvider>(context);
     final audio = Provider.of<AppAudioProvider>(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4EDE4), // Standardized background
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text(lp.isRTL ? "طرق الدفع" : "Payment Methods",
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        title: Text(lp.isRTL ? "طرق الدفع" : "Payment Methods", style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: primaryRed,
+        foregroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
         actions: [
           IconButton(
-            icon: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic,
-                color: audio.isListening ? Colors.green : primaryRed),
+            icon: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic),
             onPressed: () => _handleVoiceInteraction(audio, lp),
           )
         ],
@@ -89,7 +77,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
         stream: DatabaseService().getUserStream(currentUserId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: primaryRed));
+            return const Center(child: CircularProgressIndicator());
           }
 
           if (!snapshot.hasData || !snapshot.data!.exists) {
@@ -99,11 +87,10 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
           var userData = snapshot.data!.data() as Map<String, dynamic>;
           List methods = userData['payment_methods'] ?? [];
 
-          // Standardized card mapping
           Map<String, dynamic> card = methods.isNotEmpty
               ? methods[0]
               : {
-            'cardHolder': 'NO CARD ADDED',
+            'cardHolder': lp.isRTL ? 'لا توجد بطاقة' : 'NO CARD ADDED',
             'cardNumber': '**** **** **** ****',
             'expiry': '--/--',
           };
@@ -114,17 +101,19 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildCreditCard(
-                  (card['cardHolder'] ?? 'Rawan Magdy').toString().toUpperCase(),
-                  card['cardNumber'] ?? '**** **** **** 5678',
-                  card['expiry'] ?? '05/29',
-                  [const Color(0xFF1A1A1A), const Color(0xFF424242)], // Sleek dark theme
+                  (card['cardHolder'] ?? 'Unknown').toString().toUpperCase(),
+                  card['cardNumber'] ?? '**** **** **** ****',
+                  card['expiry'] ?? '--/--',
+                  [const Color(0xFFB71C1C), const Color(0xFFD32F2F)],
                 ),
 
                 const SizedBox(height: 30),
+
                 Text(
                   lp.isRTL ? "طرق دفع أخرى" : "Other Payment Methods",
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
+
                 const SizedBox(height: 15),
 
                 _buildPaymentOption(Icons.account_balance_wallet_outlined, "Google Pay", primaryRed),
@@ -139,7 +128,20 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
                 ),
 
                 const SizedBox(height: 40),
-                _buildSecureFooter(lp),
+
+                Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.lock_outline, size: 16, color: Colors.grey[400]),
+                      const SizedBox(width: 5),
+                      Text(
+                        lp.isRTL ? "دفع آمن بتشفير SSL" : "Secure 256-bit SSL Encrypted Payment",
+                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           );
@@ -148,52 +150,24 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
     );
   }
 
-  Widget _buildSecureFooter(LanguageProvider lp) {
-    return Center(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.lock_outline, size: 16, color: Colors.grey[400]),
-              const SizedBox(width: 5),
-              Text(
-                lp.isRTL ? "دفع آمن بتشفير SSL" : "Secure 256-bit SSL Encryption",
-                style: TextStyle(color: Colors.grey[400], fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          Image.network(
-            'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Visa_Inc._logo.svg/2560px-Visa_Inc._logo.svg.png',
-            height: 20,
-            color: Colors.grey.withOpacity(0.5),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showAddCardDialog(BuildContext context, String userId) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: Text(Provider.of<LanguageProvider>(context).isRTL ? "إضافة بطاقة" : "Add New Card"),
-        content: const Text("This opens the secure Firebase payment gateway."),
+        title: const Text("Add New Card"),
+        content: const Text("This would normally open a secure form to enter card details."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
           ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEB1B33)),
               onPressed: () {
                 DatabaseService().addPaymentMethod(userId, {
                   'cardHolder': 'Rawan Magdy',
-                  'cardNumber': '**** **** **** 1234',
-                  'expiry': '12/30',
+                  'cardNumber': '**** **** **** 5678',
+                  'expiry': '05/29',
                 });
                 Navigator.pop(context);
               },
-              child: const Text("Add Card", style: TextStyle(color: Colors.white))
+              child: const Text("Simulate Add")
           ),
         ],
       ),
@@ -203,7 +177,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
   Widget _buildCreditCard(String name, String number, String expiry, List<Color> colors) {
     return Container(
       width: double.infinity,
-      height: 210,
+      height: 200,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -214,9 +188,9 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: colors[0].withOpacity(0.4),
             blurRadius: 15,
-            offset: const Offset(0, 10),
+            offset: const Offset(0, 8),
           )
         ],
       ),
@@ -228,15 +202,20 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Icon(Icons.contactless, color: Colors.white, size: 30),
-              const Text(
+              Text(
                 "VISA",
-                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic),
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    fontStyle: FontStyle.italic),
               ),
             ],
           ),
           Text(
             number,
-            style: const TextStyle(color: Colors.white, fontSize: 20, letterSpacing: 3, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+                color: Colors.white, fontSize: 22, letterSpacing: 2, fontWeight: FontWeight.w500),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -244,15 +223,15 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("CARD HOLDER", style: TextStyle(color: Colors.white60, fontSize: 9)),
-                  Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  const Text("CARD HOLDER", style: TextStyle(color: Colors.white70, fontSize: 10)),
+                  Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 ],
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("EXPIRES", style: TextStyle(color: Colors.white60, fontSize: 9)),
-                  Text(expiry, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  const Text("EXPIRES", style: TextStyle(color: Colors.white70, fontSize: 10)),
+                  Text(expiry, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 ],
               ),
             ],
@@ -268,12 +247,18 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5, offset: const Offset(0, 2))],
+        border: Border.all(color: Colors.grey[200]!),
       ),
       child: ListTile(
         leading: Icon(icon, color: isAction ? accent : Colors.black87),
-        title: Text(title, style: TextStyle(fontWeight: isAction ? FontWeight.bold : FontWeight.normal, color: isAction ? accent : Colors.black87)),
-        trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 18),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: isAction ? FontWeight.bold : FontWeight.normal,
+            color: isAction ? accent : Colors.black87,
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
         onTap: onTap ?? () {},
       ),
     );
