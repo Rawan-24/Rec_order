@@ -335,29 +335,25 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           );
           break;
         }
-        final match = _loadedRestaurants
-            .where((r) =>
-            r.name.toLowerCase().contains(restaurantName.toLowerCase()))
-            .toList();
-        if (match.isNotEmpty && mounted) {
+
+        // ✅ Use findRestaurant with normalization + contains both ways
+        final match = _findRestaurant(_loadedRestaurants, restaurantName);
+
+        if (match != null && mounted) {
           _shouldListen = false;
           await audio.speak(
-            lp.isEnglish
-                ? "Opening ${match.first.name}."
-                : "جاري فتح ${match.first.name}.",
+            lp.isEnglish ? "Opening ${match.name}." : "جاري فتح ${match.name}.",
             lp.isEnglish ? "en-US" : "ar-SA",
           );
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => Menu(restaurant: match.first)),
+            MaterialPageRoute(builder: (_) => Menu(restaurant: match)),
           ).then((_) {
             if (!mounted) return;
             _shouldListen = true;
             _isProcessing = false;
             Future.delayed(const Duration(milliseconds: 400),
-                    () {
-                  if (mounted) _speakIntro(lp);
-                });
+                    () { if (mounted) _speakIntro(lp); });
           });
         } else {
           await audio.speak(
@@ -641,7 +637,73 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
       ),
     );
   }
+  Restaurant? _findRestaurant(List<Restaurant> restaurants, String value) {
+    final normalizedValue = _normalize(value);
+    final translitValue = _transliterate(normalizedValue);
 
+    for (final r in restaurants) {
+      final normalizedName = _normalize(r.name);
+      final translitName = _transliterate(normalizedName);
+
+      // 1. Exact match (all combinations)
+      if (normalizedName == normalizedValue) return r;
+      if (translitName == translitValue) return r;
+      if (normalizedName == translitValue) return r;
+      if (translitName == normalizedValue) return r;
+
+      // 2. Full phrase contains the restaurant name
+      //    Handles: "عايزه اطلب من باستا هاوس" → contains "pasta house"
+      if (normalizedValue.contains(normalizedName)) return r;
+      if (normalizedValue.contains(translitName)) return r;
+      if (translitValue.contains(normalizedName)) return r;
+      if (translitValue.contains(translitName)) return r;
+
+      // 3. Partial input — name contains what user said
+      if (normalizedName.contains(normalizedValue)) return r;
+      if (translitName.contains(translitValue)) return r;
+    }
+
+    return null;
+  }
+
+  String _normalize(String text) {
+    return text
+        .replaceAll('أ', 'ا')
+        .replaceAll('إ', 'ا')
+        .replaceAll('آ', 'ا')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .toLowerCase();
+  }
+
+  String _transliterate(String text) {
+    // ⚠️ CRITICAL: Full phrases MUST come before individual words
+    // to prevent 'بار' matching inside 'سالاد بار' early
+    return text
+    // ── Full restaurant names first ──
+        .replaceAll('فريش سالاد بار', 'fresh salad bar')
+        .replaceAll('بيتزا بارادايس', 'pizza paradise')
+        .replaceAll('بيتزا باراديس', 'pizza paradise')
+        .replaceAll('باستا هاوس', 'pasta house')
+    // ── Individual words after ──
+        .replaceAll('بيتزا', 'pizza')
+        .replaceAll('باستا', 'pasta')
+        .replaceAll('بارادايس', 'paradise')
+        .replaceAll('باراديس', 'paradise')
+        .replaceAll('فريش', 'fresh')
+        .replaceAll('سالاد', 'salad')
+        .replaceAll('هاوس', 'house')
+        .replaceAll('بار', 'bar')       // ← short word, must come LAST
+        .replaceAll('كافيه', 'cafe')
+        .replaceAll('كافيتيريا', 'cafeteria')
+        .replaceAll('برجر', 'burger')
+        .replaceAll('شيك', 'shake')
+        .replaceAll('جريل', 'grill')
+        .replaceAll('كيتشن', 'kitchen')
+        .replaceAll('هوت', 'hot')
+        .replaceAll('دوج', 'dog');
+  }
   Widget _buildVoiceHintBar(AppAudioProvider audio, LanguageProvider lp) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),

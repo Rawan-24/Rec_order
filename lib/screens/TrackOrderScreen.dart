@@ -53,8 +53,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
 
     final List items = orderData['items'] ?? [];
     final String status = orderData['status'] ?? "Pending";
-    final double total =
-        (orderData['totalPrice'] as num?)?.toDouble() ?? 0.0;
+    final double total = (orderData['totalPrice'] as num?)?.toDouble() ?? 0.0;
     final String orderNumber =
         orderData['orderNumber'] ?? widget.orderId!.substring(0, 5);
     final int totalQuantity =
@@ -81,43 +80,73 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
 
     _lastStatus = status;
 
-    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+    // ── Translate status to Arabic ──────────────────────────────────────────
+    String statusAr;
+    switch (status) {
+      case "Preparing": statusAr = "قيد التحضير"; break;
+      case "Ready":     statusAr = "جاهز";         break;
+      case "On the Way": statusAr = "في الطريق";   break;
+      case "Delivered": statusAr = "تم التوصيل";   break;
+      default:          statusAr = "قيد الانتظار"; break;
+    }
 
-    final String message = lp.isEnglish
-        ? "Tracking your order. "
-        "Order number $orderNumber. "
-        "Your order is from $restaurantName. "
-        "You have $totalQuantity items. "
-        "Total is ${total.toStringAsFixed(2)} Egyptian pounds. "
-        "Estimated arrival in $estimatedMinutes minutes. "
-        "Current status: $status. "
-        "Your rider is $driverName. "
-        "Your order will be updated automatically as it progresses. "
-        "Say go back to return."
-        : "جاري تتبع طلبك. "
-        "رقم الطلب $orderNumber. "
-        "طلبك من $restaurantName. "
+    Future<void> say(String text, String lang) async {
+      if (!mounted) return;
+      final completer = Completer<void>();
+      await tts.setLanguage(lang);
+      tts.setCompletionHandler(() {
+        if (!completer.isCompleted) completer.complete();
+      });
+      await tts.speak(text);
+      try {
+        await completer.future.timeout(const Duration(seconds: 20));
+      } catch (_) {}
+    }
+
+    if (lp.isEnglish) {
+      // ── English: one block is fine ──────────────────────────────────────
+      await say(
+        "Tracking your order. "
+            "Order number $orderNumber. "
+            "Your order is from $restaurantName. "
+            "You have $totalQuantity items. "
+            "Total is ${total.toStringAsFixed(2)} Egyptian pounds. "
+            "Estimated arrival in $estimatedMinutes minutes. "
+            "Current status: $status. "
+            "Your rider is $driverName. "
+            "Your order will be updated automatically. "
+            "Say go back to return.",
+        "en-US",
+      );
+    } else {
+      // ── Arabic: split so English names are spoken in English ────────────
+      await say("جاري تتبع طلبك.", "ar-SA");
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      await say("رقم الطلب", "ar-SA");
+      await say(orderNumber, "en-US");
+
+      await say("طلبك من", "ar-SA");
+      await say(restaurantName, "en-US");
+
+      await say(
         "لديك $totalQuantity أصناف. "
-        "الإجمالي ${total.toStringAsFixed(2)} جنيه مصري. "
-        "الوقت المتوقع للوصول $estimatedMinutes دقيقة. "
-        "الحالة الحالية: $status. "
-        "المندوب هو $driverName. "
-        "سيتم تحديث طلبك تلقائياً مع تقدمه. "
-        "قل ارجع للعودة.";
+            "الإجمالي ${total.toStringAsFixed(2)} جنيه مصري. "
+            "الوقت المتوقع للوصول $estimatedMinutes دقيقة.",
+        "ar-SA",
+      );
+      await Future.delayed(const Duration(milliseconds: 200));
 
-    // Use a Completer so we wait for TTS to finish before starting the mic
-    final completer = Completer<void>();
-    tts.setCompletionHandler(() {
-      if (!completer.isCompleted) completer.complete();
-    });
+      await say("الحالة الحالية: $statusAr.", "ar-SA");
+      await Future.delayed(const Duration(milliseconds: 200));
 
-    await tts.speak(message);
+      await say("المندوب هو", "ar-SA");
+      await say(driverName, "en-US");
 
-    // Wait for speech to finish (max 45 s) then start listening
-    try {
-      await completer.future.timeout(const Duration(seconds: 45));
-    } catch (_) {
-      debugPrint("TTS completion timed out — continuing anyway");
+      await say(
+        "سيتم تحديث طلبك تلقائياً مع تقدمه. قل ارجع للعودة.",
+        "ar-SA",
+      );
     }
 
     if (mounted) {
@@ -132,13 +161,22 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     if (status == _lastStatus) return;
     _lastStatus = status;
 
-    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
-    final String message = lp.getText('status_voice_prefix') +
-        " " +
-        lp.getText('status_${status.toLowerCase().replaceAll(' ', '_')}');
-    await tts.speak(message);
-  }
+    String statusAr;
+    switch (status) {
+      case "Preparing":  statusAr = "قيد التحضير"; break;
+      case "Ready":      statusAr = "جاهز";         break;
+      case "On the Way": statusAr = "في الطريق";    break;
+      case "Delivered":  statusAr = "تم التوصيل";   break;
+      default:           statusAr = "قيد الانتظار"; break;
+    }
 
+    await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+    await tts.speak(
+      lp.isEnglish
+          ? "Order status updated: $status."
+          : "تم تحديث حالة الطلب: $statusAr.",
+    );
+  }
   // ── voice listening loop ──────────────────────────────────────────────────
   void _startListening(LanguageProvider lp) async {
     if (!_shouldListen || !mounted) return;

@@ -192,18 +192,14 @@ class _MenuState extends State<Menu> {
 
         // Select a named menu item
           case "select_menu_item":
-            final match = fullMenu
-                .where((item) =>
-            item.name.toLowerCase() == value.toLowerCase() ||
-                item.name.toLowerCase().contains(value.toLowerCase()))
-                .toList();
+            final match = _findMenuItem(fullMenu, value.isNotEmpty ? value : text);
 
-            if (match.isNotEmpty) {
+            if (match != null) {
               _shouldListen = false;
               await audio.speak(
                 lp.isEnglish
-                    ? "Opening ${match.first.name}."
-                    : "جاري فتح ${match.first.name}.",
+                    ? "Opening ${match.name}."
+                    : "جاري فتح ${match.name}.",
                 lp.isEnglish ? "en-US" : "ar-SA",
               );
               if (mounted) {
@@ -211,7 +207,7 @@ class _MenuState extends State<Menu> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => MenuItem(
-                      item: match.first,
+                      item: match,
                       restaurantName: widget.restaurant.name,
                     ),
                   ),
@@ -223,16 +219,14 @@ class _MenuState extends State<Menu> {
               }
               return;
             } else {
-              // Item name not found in this restaurant's menu
               await audio.speak(
                 lp.isEnglish
-                    ? "Sorry, I couldn't find $value in this menu."
-                    : "عذراً، لم أجد $value في هذه القائمة.",
+                    ? "Sorry, I couldn't find that item in this menu."
+                    : "عذراً، لم أجد هذا العنصر في القائمة.",
                 lp.isEnglish ? "en-US" : "ar-SA",
               );
             }
             break;
-
         // Category filters
           case "filter_category":
             final cat = value.isNotEmpty ? value : "All";
@@ -322,7 +316,71 @@ class _MenuState extends State<Menu> {
       }).toList();
     });
   }
+  MenuItemModel? _findMenuItem(List<MenuItemModel> items, String value) {
+    final normalizedValue = _normalize(value);
+    final translitValue = _transliterateMenuItem(normalizedValue);
 
+    for (final item in items) {
+      final normalizedName = _normalize(item.name);
+      final translitName = _transliterateMenuItem(normalizedName);
+
+      // 1. Exact match (all combinations)
+      if (normalizedName == normalizedValue) return item;
+      if (translitName == translitValue) return item;
+      if (normalizedName == translitValue) return item;
+      if (translitName == normalizedValue) return item;
+
+      // 2. Full phrase contains the item name
+      //    Handles: "عايزه اطلب باستا كاربونارا" → contains "pasta carbonara"
+      if (normalizedValue.contains(normalizedName)) return item;
+      if (normalizedValue.contains(translitName)) return item;
+      if (translitValue.contains(normalizedName)) return item;
+      if (translitValue.contains(translitName)) return item;
+
+      // 3. Partial — item name contains what user said
+      if (normalizedName.contains(normalizedValue)) return item;
+      if (translitName.contains(translitValue)) return item;
+    }
+
+    return null;
+  }
+
+  String _normalize(String text) {
+    return text
+        .replaceAll('أ', 'ا')
+        .replaceAll('إ', 'ا')
+        .replaceAll('آ', 'ا')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .toLowerCase();
+  }
+
+  String _transliterateMenuItem(String text) {
+    // ⚠️ Full phrases MUST come before individual words
+    return text
+    // ── Full item names first ──
+        .replaceAll('باستا كاربونارا', 'pasta carbonara')
+        .replaceAll('باستا الفريدو', 'pasta alfredo')
+        .replaceAll('بيبروني بيتزا', 'pepperoni pizza')
+        .replaceAll('مارغريتا بيتزا', 'margherita pizza')
+        .replaceAll('سلطه يونانيه', 'greek salad')
+        .replaceAll('سلطة يونانية', 'greek salad')
+        .replaceAll('سلطه سيزر', 'caesar salad')
+        .replaceAll('سلطة سيزر', 'caesar salad')
+    // ── Individual words after ──
+        .replaceAll('باستا', 'pasta')
+        .replaceAll('بيتزا', 'pizza')
+        .replaceAll('بيبروني', 'pepperoni')
+        .replaceAll('مارغريتا', 'margherita')
+        .replaceAll('كاربونارا', 'carbonara')
+        .replaceAll('الفريدو', 'alfredo')
+        .replaceAll('سلطه', 'salad')
+        .replaceAll('سلطة', 'salad')
+        .replaceAll('يونانيه', 'greek')
+        .replaceAll('يونانية', 'greek')
+        .replaceAll('سيزر', 'caesar');
+  }
   @override
   Widget build(BuildContext context) {
     final audio = Provider.of<AppAudioProvider>(context);
