@@ -7,110 +7,77 @@ import 'package:grad_project/Models/FavoriteModel.dart';
 import 'package:grad_project/Models/MenuItemModel.dart';
 import 'package:grad_project/Models/Restaurant.dart';
 import 'package:grad_project/screens/RestaurantData.dart';
+import 'package:grad_project/notification_service.dart'; // ← added
 
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-Future<void> createUserProfile(String uid, String username, String phone,{String language = 'en'}) async {
+
+  // ── USER ──────────────────────────────────────────────────────────────────
+
+  Future<void> createUserProfile(String uid, String username, String phone,
+      {String language = 'en'}) async {
     try {
       await _db.collection('users').doc(uid).set({
         'uid': uid,
         'username': username,
         'phone': phone,
-        'language': language, // default
+        'language': language,
         'createdAt': FieldValue.serverTimestamp(),
-        'favorites': [], // Initialize empty favorites list for new users
+        'favorites': [],
       });
     } catch (e) {
-      print("Error creating user: $e");
+      debugPrint("Error creating user: $e");
     }
-
-}
-
-// DatabaseService.dart
-Future<void> processPayment(List<CartItem> items, double total) async {
-  final user = FirebaseAuth.instance.currentUser;
-  
-  // Save the final order to a 'orders' collection
-  await _db.collection('orders').add({
-    'userId': user!.uid,
-    'items': items.map((i) => i.toMap()).toList(),
-    'total': total,
-    'status': 'Pending',
-    'timestamp': FieldValue.serverTimestamp(),
-  });
-}
-// DatabaseService.dart     ///////check address
-Future<bool> hasSavedAddress() async {
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-
-    DocumentSnapshot doc = await _db.collection('users').doc(user.uid).get();
-    
-    if (doc.exists) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      // Check if the 'address' key exists and is not just empty text
-      return data.containsKey('address') && data['address'].toString().trim().isNotEmpty;
-    }
-    return false;
-  } catch (e) {
-    debugPrint("Error checking address: $e");
-    return false;
   }
-}
 
-
-  /// Specifically updates only the language field
-  /// This is called from your LanguageProvider
-// DatabaseService.dart
-
-
-  /// Fetches user data to check for language preference during splash/login
   Future<Map<String, dynamic>?> getUserData(String uid) async {
     try {
       DocumentSnapshot doc = await _db.collection('users').doc(uid).get();
       return doc.data() as Map<String, dynamic>?;
     } catch (e) {
-      print("Error fetching user data: $e");
+      debugPrint("Error fetching user data: $e");
       return null;
     }
   }
 
+  Stream<DocumentSnapshot> getUserDataStream() {
+    final user = FirebaseAuth.instance.currentUser;
+    return _db.collection('users').doc(user?.uid).snapshots();
+  }
 
+  Stream<DocumentSnapshot> getUserStream(String userId) {
+    return _db.collection('users').doc(userId).snapshots();
+  }
 
-
-
-
-
-
-// DatabaseService.dart
   Future<void> updateUserLanguage(String langCode) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // We only need the code (en/ar) to tell the app how to behave
-        await _db.collection('users').doc(user.uid).set({
-          'language': langCode,
-        }, SetOptions(merge: true));
-
-        print("Language updated to $langCode");
+        await _db
+            .collection('users')
+            .doc(user.uid)
+            .set({'language': langCode}, SetOptions(merge: true));
       }
     } catch (e) {
       debugPrint("Error updating language: $e");
       rethrow;
     }
   }
-Future<void> updateVoiceSettings(String uid, Map<String, dynamic> voiceData) async {
+
+  // ── VOICE SETTINGS ────────────────────────────────────────────────────────
+
+  Future<void> updateVoiceSettings(
+      String uid, Map<String, dynamic> voiceData) async {
     try {
-      await _db.collection('users').doc(uid).set({
-        'voiceSettings': voiceData,
-      }, SetOptions(merge: true));
+      await _db
+          .collection('users')
+          .doc(uid)
+          .set({'voiceSettings': voiceData}, SetOptions(merge: true));
     } catch (e) {
       throw Exception("Could not update voice settings: $e");
     }
   }
 
-  /// Fetches voice settings for the current user
   Future<Map<String, dynamic>?> getUserVoiceSettings(String uid) async {
     try {
       DocumentSnapshot doc = await _db.collection('users').doc(uid).get();
@@ -119,85 +86,120 @@ Future<void> updateVoiceSettings(String uid, Map<String, dynamic> voiceData) asy
         return data['voiceSettings'] as Map<String, dynamic>?;
       }
     } catch (e) {
-      print("Error fetching voice settings: $e");
+      debugPrint("Error fetching voice settings: $e");
     }
     return null;
   }
 
+  // ── ADDRESS ───────────────────────────────────────────────────────────────
 
-
-
-
-  // Inside your DatabaseService class
-Future<void> addAddress(String userId, AddressModel address) async {
-  await _db.collection('users').doc(userId).collection('addresses').add(address.toMap());
-}
-
-// Stream to listen to addresses in real-time
-Stream<List<AddressModel>> getAddresses(String userId) {
-  return _db
-      .collection('users')
-      .doc(userId)
-      .collection('addresses')
-      .snapshots()
-      .map((snapshot) => snapshot.docs
-          .map((doc) => AddressModel.fromFirestore(doc.id, doc.data()))
-          .toList());
-}
-
-Future<void> deleteAddress(String userId, String addressId) async {
-  await _db.collection('users').doc(userId).collection('addresses').doc(addressId).delete();
-}
-Future<void> updateAddress(String userId, AddressModel address) async {
-  await _db
-      .collection('users')
-      .doc(userId)
-      .collection('addresses')
-      .doc(address.id) // Use the existing document ID
-      .update(address.toMap());
-}
-
-// Add or Remove Favorite
-Future<void> toggleFavorite(String userId, FavoriteModel favorite, bool isAdding) async {
-  final ref = _db.collection('users').doc(userId).collection('favorites').doc(favorite.id);
-  
-  if (isAdding) {
-    await ref.set(favorite.toMap());
-  } else {
-    await ref.delete();
-  }
-}
-
-// Stream the list of favorites
-Stream<List<FavoriteModel>> getFavorites(String userId) {
-  return _db
-      .collection('users')
-      .doc(userId)
-      .collection('favorites')
-      .snapshots()
-      .map((snapshot) => snapshot.docs
-          .map((doc) => FavoriteModel.fromFirestore(doc.data()))
-          .toList());
-}
-
-
-
-
-
-  // 1. Get all restaurants
-  Stream<List<Restaurant>> getRestaurants() {
-    return _db.collection('restaurants').snapshots().map((snapshot) =>
-        snapshot.docs.map((doc) => Restaurant.fromFirestore(doc)).toList());
+  Future<bool> hasSavedAddress() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+      DocumentSnapshot doc =
+      await _db.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        return data.containsKey('address') &&
+            data['address'].toString().trim().isNotEmpty;
+      }
+      return false;
+    } catch (e) {
+      debugPrint("Error checking address: $e");
+      return false;
+    }
   }
 
-  // 2. Get menu for a specific restaurant
+  Future<void> addAddress(String userId, AddressModel address) async {
+    await _db
+        .collection('users')
+        .doc(userId)
+        .collection('addresses')
+        .add(address.toMap());
+  }
+
+  Stream<List<AddressModel>> getAddresses(String userId) {
+    return _db
+        .collection('users')
+        .doc(userId)
+        .collection('addresses')
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+        .map((doc) => AddressModel.fromFirestore(doc.id, doc.data()))
+        .toList());
+  }
+
+  Future<void> deleteAddress(String userId, String addressId) async {
+    await _db
+        .collection('users')
+        .doc(userId)
+        .collection('addresses')
+        .doc(addressId)
+        .delete();
+  }
+
+  Future<void> updateAddress(String userId, AddressModel address) async {
+    await _db
+        .collection('users')
+        .doc(userId)
+        .collection('addresses')
+        .doc(address.id)
+        .update(address.toMap());
+  }
+
+  // ── FAVOURITES ────────────────────────────────────────────────────────────
+
+  Future<void> toggleFavorite(
+      String userId, FavoriteModel item, bool isAlreadyFavorite) async {
+    final docRef = _db
+        .collection('users')
+        .doc(userId)
+        .collection('favorites')
+        .doc(item.id);
+    if (isAlreadyFavorite) {
+      await docRef.delete();
+    } else {
+      await docRef.set(item.toMap());
+    }
+  }
+
+  Stream<List<FavoriteModel>> getFavorites(String userId) {
+    return _db
+        .collection('users')
+        .doc(userId)
+        .collection('favorites')
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+        .map((doc) => FavoriteModel.fromFirestore(doc.data()))
+        .toList());
+  }
+
+  // ── RESTAURANTS ───────────────────────────────────────────────────────────
+
+  Stream<List<Restaurant>> getRestaurantsStream() {
+    return _db.collection('restaurants').snapshots().handleError((e) {
+      debugPrint("Firestore restaurants stream error: $e");
+    }).map((snapshot) {
+      try {
+        return snapshot.docs
+            .map((doc) => Restaurant.fromFirestore(doc))
+            .toList();
+      } catch (e) {
+        debugPrint("Error parsing restaurants: $e");
+        return <Restaurant>[];
+      }
+    });
+  }
+
+  Stream<List<Restaurant>> getRestaurants() => getRestaurantsStream();
+
   Future<List<MenuItemModel>> getMenu(String restaurantId) async {
     var snapshot = await _db
         .collection('restaurants')
         .doc(restaurantId)
         .collection('menu')
         .get();
-
     return snapshot.docs.map((doc) {
       var data = doc.data();
       return MenuItemModel(
@@ -206,53 +208,12 @@ Stream<List<FavoriteModel>> getFavorites(String userId) {
         price: (data['price'] as num).toDouble(),
         category: data['category'],
         image: data['image'],
-        availableAddOns: Map<String, double>.from(data['availableAddOns'] ?? {}),
+        availableAddOns:
+        Map<String, double>.from(data['availableAddOns'] ?? {}),
       );
     }).toList();
   }
 
-Future<void> seedRestaurantData() async {
-  final FirebaseFirestore db = FirebaseFirestore.instance;
-
-  for (var res in RestaurantData.restaurants) {
-    // This creates the main restaurant document
-    DocumentReference resRef = await db.collection('restaurants').add({
-      'name': res.name,
-      'rating': res.rating,
-      'distance': res.distance,
-      'image': res.image,
-      'description': res.description,
-      // Note: We don't save the menu list directly here 
-      // because we want it as a sub-collection below
-    });
-
-    // Now we add each menu item to the 'menu' sub-collection
-    // If 'menu' is red here, check your Restaurant class definition!
-    for (var item in res.menu) { 
-      await resRef.collection('menu').add({
-        'name': item.name,
-        'description': item.description,
-        'price': item.price,
-        'category': item.category,
-        'image': item.image,
-        'availableAddOns': item.availableAddOns,
-      });
-    }
-  }
-}
-
-  // --- RESTAURANT METHODS ---
-
-  /// 1. Get a Real-time Stream of all restaurants
-  /// This is used in your RestaurantsScreen to show the cards.
-  Stream<List<Restaurant>> getRestaurantsStream() {
-    return _db.collection('restaurants').snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) => Restaurant.fromFirestore(doc)).toList();
-    });
-  }
-
-  /// 2. Fetch the Menu sub-collection for a specific restaurant
-  /// This is used in your Menu screen when a user clicks a restaurant.
   Future<List<MenuItemModel>> getRestaurantMenu(String restaurantId) async {
     try {
       var snapshot = await _db
@@ -260,27 +221,19 @@ Future<void> seedRestaurantData() async {
           .doc(restaurantId)
           .collection('menu')
           .get();
-
-      return snapshot.docs.map((doc) {
-        // We use the factory we created in MenuItemModel
-        return MenuItemModel.fromFirestore(doc.data());
-      }).toList();
+      return snapshot.docs
+          .map((doc) => MenuItemModel.fromFirestore(doc.data()))
+          .toList();
     } catch (e) {
-      print("Error fetching menu for $restaurantId: $e");
-      return []; // Return empty list so the app doesn't crash
+      debugPrint("Error fetching menu for $restaurantId: $e");
+      return [];
     }
   }
 
-  // --- SEEDER METHOD (Optional) ---
-
-  /// 3. Run this ONCE to move your hardcoded data to Firebase
-Future<void> uploadMockData(List<Restaurant> mockList) async {
-  // 1. Check if we already have restaurants
-  var existing = await _db.collection('restaurants').limit(1).get();
-
-  // 2. Only upload if the collection is empty
-  if (existing.docs.isEmpty) {
-    for (var res in mockList) {
+  Future<void> seedRestaurantData() async {
+    final existing = await _db.collection('restaurants').limit(1).get();
+    if (existing.docs.isNotEmpty) return;
+    for (var res in RestaurantData.restaurants) {
       DocumentReference resRef = await _db.collection('restaurants').add({
         'name': res.name,
         'rating': res.rating,
@@ -288,7 +241,6 @@ Future<void> uploadMockData(List<Restaurant> mockList) async {
         'image': res.image,
         'description': res.description,
       });
-
       for (var item in res.menu) {
         await resRef.collection('menu').add({
           'name': item.name,
@@ -300,64 +252,46 @@ Future<void> uploadMockData(List<Restaurant> mockList) async {
         });
       }
     }
-    print("First-time seeding complete!");
-  } else {
-    print("Database already has data, skipping upload.");
   }
-}
-// Inside your DatabaseService.dart
 
-/// Fetch saved payment methods for a specific user
-Future<Map<String, dynamic>?> getUserPaymentMethods(String userId) async {
-  try {
-    DocumentSnapshot doc = await _db.collection('users').doc(userId).get();
-    if (doc.exists) {
-      // Return the payment_methods map from the user's document
-      return doc.get('payment_methods');
-    }
-  } catch (e) {
-    print("Error fetching payment methods: $e");
-  }
-  return null;
-}
-
-/// Add a new payment method (like a card nickname or type)
-Future<void> savePaymentMethod(String userId, Map<String, dynamic> methodData) async {
-  try {
-    await _db.collection('users').doc(userId).set({
-      'payment_methods': FieldValue.arrayUnion([methodData])
-    }, SetOptions(merge: true));
-  } catch (e) {
-    print("Error saving payment method: $e");
-  }
-}
-
-
-
-// --- PART A: SAVED PAYMENT METHODS ---
-
-  /// Fetch the user's saved payment methods (from a sub-collection or user doc)
-  Future<Map<String, dynamic>?> getSavedPaymentMethods(String userId) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('users').doc(userId).get();
-      if (doc.exists && doc.data() != null) {
-        // We assume you store a 'payment_methods' field in the user document
-        return (doc.data() as Map<String, dynamic>)['payment_methods'];
+  Future<void> uploadMockData(List<Restaurant> mockList) async {
+    var existing = await _db.collection('restaurants').limit(1).get();
+    if (existing.docs.isEmpty) {
+      for (var res in mockList) {
+        DocumentReference resRef = await _db.collection('restaurants').add({
+          'name': res.name,
+          'rating': res.rating,
+          'distance': res.distance,
+          'image': res.image,
+          'description': res.description,
+        });
+        for (var item in res.menu) {
+          await resRef.collection('menu').add({
+            'name': item.name,
+            'description': item.description,
+            'price': item.price,
+            'category': item.category,
+            'image': item.image,
+            'availableAddOns': item.availableAddOns,
+          });
+        }
       }
-    } catch (e) {
-      print("Error fetching payment methods: $e");
     }
-    return null;
   }
 
-  /// Update the user's preferred payment method
-  Future<void> updateDefaultPaymentMethod(String userId, String methodId) async {
-    await _db.collection('users').doc(userId).update({
-      'preferred_payment_id': methodId,
+  // ── ORDERS ────────────────────────────────────────────────────────────────
+
+  Future<void> processPayment(List<CartItem> items, double total) async {
+    final user = FirebaseAuth.instance.currentUser;
+    await _db.collection('orders').add({
+      'userId': user!.uid,
+      'items': items.map((i) => i.toMap()).toList(),
+      'total': total,
+      'status': 'Pending',
+      'timestamp': FieldValue.serverTimestamp(),
     });
   }
 
- /// Places a new order, links it to the user, and returns the Order ID
   Future<String> placeOrder({
     required List<CartItem> cartItems,
     required String userId,
@@ -370,13 +304,11 @@ Future<void> savePaymentMethod(String userId, Map<String, dynamic> methodData) a
     try {
       DocumentReference orderRef = _db.collection('orders').doc();
 
-      // --- FIX: SELF-HEALING NAME LOGIC ---
       String finalName = restaurantName;
       if (finalName.isEmpty && items.isNotEmpty) {
-        finalName = items.first.restaurant; // Pulls from your CartItem model
+        finalName = items.first.restaurant;
       }
       if (finalName.isEmpty) finalName = "RecOrder Partner";
-      // ------------------------------------
 
       Map<String, dynamic> orderData = {
         'orderId': orderRef.id,
@@ -385,93 +317,95 @@ Future<void> savePaymentMethod(String userId, Map<String, dynamic> methodData) a
         'totalPrice': total,
         'paymentMethod': paymentMethod,
         'status': "Pending",
-        'restaurantName': finalName, // Uses our validated name
+        'restaurantName': finalName,
         'restaurantImage': restaurantImage,
-        'orderNumber': 'ORD${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+        'orderNumber':
+        'ORD${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
         'timestamp': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       };
 
       await orderRef.set(orderData);
 
-      await _db.collection('users').doc(userId).set({
-        'activeOrderId': orderRef.id,
-      }, SetOptions(merge: true));
+      await _db.collection('users').doc(userId).set(
+          {'activeOrderId': orderRef.id}, SetOptions(merge: true));
+
+      // ── Show confirmation notification immediately ──────────────────────
+      await showLocalNotification(
+        "Order Confirmed! 🎉",
+        "Your order has been received and is being processed.",
+      );
+
+      // ── Listen for status changes and notify accordingly ───────────────
+      _listenToOrderStatus(orderRef);
 
       return orderRef.id;
     } catch (e) {
-      print("Database Error: $e");
+      debugPrint("Database Error: $e");
       throw Exception("Failed to place order: $e");
     }
   }
 
+  /// Listens to a single order document and fires a notification
+  /// whenever the status field changes.
+  void _listenToOrderStatus(DocumentReference orderRef) {
+    String lastStatus = 'Pending';
 
-Stream<List<Map<String, dynamic>>> getUserOrders(String userId) {
-  return _db
-      .collection('orders')
-      .where('userId', isEqualTo: userId)
-      .orderBy('createdAt', descending: true) // Shows newest first
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) {
-            var data = doc.data();
-            data['id'] = doc.id; // Include the document ID for navigation
-            return data;
-          }).toList());
-}
+    orderRef.snapshots().listen((snap) async {
+      if (!snap.exists) return;
+      final status = (snap.data() as Map<String, dynamic>?)?['status'] as String?;
+      if (status == null || status == lastStatus) return;
+      lastStatus = status;
 
+      switch (status) {
+        case 'Preparing':
+          await showLocalNotification(
+            "Order Being Prepared 👨‍🍳",
+            "The restaurant is now preparing your food!",
+          );
+          break;
+        case 'On the Way':
+          await showLocalNotification(
+            "On The Way! 🚗",
+            "Your order is out for delivery.",
+          );
+          break;
+        case 'Delivered':
+          await showLocalNotification(
+            "Delivered! ✅",
+            "Your order has arrived. Enjoy your meal!",
+          );
+          break;
+      }
+    });
+  }
 
-
-Stream<List<Map<String, dynamic>>> getUserOrdersStream(String userId) {
-  return _db
-      .collection('orders')
-      .where('userId', isEqualTo: userId)
-      .orderBy('createdAt', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) {
-            var data = doc.data();
-            data['orderId'] = doc.id; // Map the doc ID so we can click it to track
-            return data;
-          }).toList());
-}
-
-
-// Add this inside your DatabaseService class
-Stream<DocumentSnapshot> getOrderStream(String orderId) {
-  return _db.collection('orders').doc(orderId).snapshots();
-}
-
-
-// Add this to your DatabaseService class
-Stream<DocumentSnapshot> getUserDataStream() {
-  final user = FirebaseAuth.instance.currentUser;
-  return FirebaseFirestore.instance
-      .collection('users')
-      .doc(user?.uid)
-      .snapshots();
-}
-
-// Fetch orders that are still being processed
+  // ── FIX: getActiveOrders — NO composite index required ───────────────────
   Stream<QuerySnapshot> getActiveOrders(String userId) {
-    return FirebaseFirestore.instance
+    return _db
         .collection('orders')
         .where('userId', isEqualTo: userId)
-        .where('status', whereIn: ['Pending', 'Preparing', 'On the way'])
-        .orderBy('timestamp', descending: true)
+        .where('status',
+        whereIn: ['Pending', 'Preparing', 'On the Way', 'Ready'])
         .snapshots();
   }
 
+  Stream<QuerySnapshot> getPastOrders(String userId) {
+    return _db
+        .collection('orders')
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: 'Delivered')
+        .snapshots();
+  }
 
-// Fetch the ID of the current active order from the user's profile
   Future<String?> getActiveOrderId() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return null;
-
-      DocumentSnapshot doc = await _db.collection('users').doc(user.uid).get();
-
+      DocumentSnapshot doc =
+      await _db.collection('users').doc(user.uid).get();
       if (doc.exists && doc.data() != null) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        // This field MUST match what you save in placeOrder
         return data['activeOrderId'] as String?;
       }
     } catch (e) {
@@ -479,55 +413,125 @@ Stream<DocumentSnapshot> getUserDataStream() {
     }
     return null;
   }
-// Fetch orders that are finished
-  Stream<QuerySnapshot> getPastOrders(String userId) {
-    return FirebaseFirestore.instance
-        .collection('orders')
-        .where('userId', isEqualTo: userId)
-        .where('status', whereIn: ['Delivered', 'Cancelled'])
-        .orderBy('timestamp', descending: true)
-        .snapshots();
+
+  Stream<DocumentSnapshot> getOrderStream(String orderId) {
+    return _db.collection('orders').doc(orderId).snapshots();
   }
 
-// Add this to your DatabaseService class
-Stream<DocumentSnapshot> getOrderById(String orderId) {
-  return FirebaseFirestore.instance
-      .collection('orders')
-      .doc(orderId)
-      .snapshots();
-}
+  Stream<DocumentSnapshot> getOrderById(String orderId) {
+    return _db.collection('orders').doc(orderId).snapshots();
+  }
 
+  // ── Legacy order streams ──────────────────────────────────────────────────
 
+  Stream<List<Map<String, dynamic>>> getUserOrders(String userId) {
+    return _db
+        .collection('orders')
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+      var data = doc.data();
+      data['id'] = doc.id;
+      return data;
+    }).toList());
+  }
 
+  Stream<List<Map<String, dynamic>>> getUserOrdersStream(String userId) {
+    return _db
+        .collection('orders')
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+      var data = doc.data();
+      data['orderId'] = doc.id;
+      return data;
+    }).toList());
+  }
 
-
-  // 2. Fetch order history for a specific user (Used in OrderHistoryPage)
   Stream<QuerySnapshot> getOrdersByUser(String userId) {
     return _db
         .collection('orders')
         .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
         .snapshots();
   }
 
+  // ── PAYMENT METHODS ───────────────────────────────────────────────────────
 
-// 1. Get real-time stream of the user's data (including cards)
-  Stream<DocumentSnapshot> getUserStream(String userId) {
-    return _db.collection('users').doc(userId).snapshots();
+  Future<Map<String, dynamic>?> getUserPaymentMethods(String userId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('users').doc(userId).get();
+      if (doc.exists) return doc.get('payment_methods');
+    } catch (e) {
+      debugPrint("Error fetching payment methods: $e");
+    }
+    return null;
   }
 
-  // 2. Add a new payment method to the array
-  Future<void> addPaymentMethod(String userId, Map<String, dynamic> cardData) async {
+  Future<void> savePaymentMethod(
+      String userId, Map<String, dynamic> methodData) async {
+    try {
+      await _db.collection('users').doc(userId).set({
+        'payment_methods': FieldValue.arrayUnion([methodData])
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Error saving payment method: $e");
+    }
+  }
+
+  Future<Map<String, dynamic>?> getSavedPaymentMethods(String userId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('users').doc(userId).get();
+      if (doc.exists && doc.data() != null) {
+        return (doc.data() as Map<String, dynamic>)['payment_methods'];
+      }
+    } catch (e) {
+      debugPrint("Error fetching payment methods: $e");
+    }
+    return null;
+  }
+
+  Future<void> updateDefaultPaymentMethod(
+      String userId, String methodId) async {
+    await _db.collection('users').doc(userId).update({
+      'preferred_payment_id': methodId,
+    });
+  }
+
+  Future<void> addPaymentMethod(
+      String userId, Map<String, dynamic> cardData) async {
     try {
       await _db.collection('users').doc(userId).update({
         'payment_methods': FieldValue.arrayUnion([cardData])
       });
     } catch (e) {
-      print("Error adding payment method: $e");
+      debugPrint("Error adding payment method: $e");
     }
   }
 
+  // ── NOTIFICATION SETTINGS ─────────────────────────────────────────────────
 
+  Future<Map<String, dynamic>?> getNotificationSettings(String uid) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('settings')
+          .doc('notifications')
+          .get();
+      return doc.exists ? doc.data() : null;
+    } catch (e) {
+      debugPrint("getNotificationSettings error: $e");
+      return null;
+    }
+  }
 
-
+  Future<void> updateNotificationSettings(
+      String uid, Map<String, dynamic> data) async {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('settings')
+        .doc('notifications')
+        .set(data, SetOptions(merge: true));
+  }
 }

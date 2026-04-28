@@ -3,9 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart'; // Import Provider
+import 'package:grad_project/providers/AudioProvider.dart';
 import 'package:grad_project/screens/personal_information.dart';
 
+import '../services/ai_service.dart';
 import 'Delivery_Address.dart';
 import 'Home.dart';
 import 'Language_Selection.dart';
@@ -24,48 +25,171 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  bool _shouldListen = true;
+  bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announceProfile();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final audio = Provider.of<AppAudioProvider>(context, listen: false);
+      final lp = Provider.of<LanguageProvider>(context, listen: false);
+      await Future.delayed(const Duration(milliseconds: 500));
+      await audio.initSpeech();
+      await _speakIntro(lp);
     });
   }
 
-  void _announceProfile() {
-    final lp = Provider.of<LanguageProvider>(context, listen: false);
+  @override
+  void dispose() {
+    _shouldListen = false;
+    super.dispose();
+  }
+  Future<void> _speakIntro(LanguageProvider lp) async {
+    if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    String msg = lp.isRTL
-        ? "ملفك الشخصي. يمكنك قول 'عناويني'، 'طرق الدفع'، أو 'تسجيل الخروج'."
-        : "Your profile. You can say 'My addresses', 'Payment methods', or 'Logout'.";
-    audio.speak(msg, lp.currentLanguage);
+    await audio.stop();
+    await audio.speak(
+      lp.isEnglish
+          ? "Profile. Say personal info, addresses, notifications, "
+          "voice settings, or log out. Say go back to return."
+          : "الملف الشخصي. قل معلوماتي، العناوين، التنبيهات، "
+          "إعدادات الصوت، أو تسجيل الخروج. قل ارجع للعودة.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+    if (mounted) {
+      _shouldListen = true;
+      _startListening(lp);
+    }
   }
 
-  void _handleVoiceNavigation(AppAudioProvider audio, LanguageProvider lp) {
-    audio.toggleListening(lp.currentLanguage, (words) {
-      String command = words.toLowerCase();
 
-      if (command.contains("address") || command.contains("عناوين")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const DeliveryAddressesPage()));
-      } else if (command.contains("payment") || command.contains("دفع")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentMethodsPage()));
-      } else if (command.contains("history") || command.contains("طلباتي")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
-      } else if (command.contains("favorite") || command.contains("مفضل")) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
-      } else if (command.contains("logout") || command.contains("خروج")) {
-        _performLogout(context);
-      }
-    });
+
+  void _startListening(LanguageProvider lp) async {
+    if (!_shouldListen || !mounted) return;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    if (audio.speech.isListening) return;
+
+    await audio.toggleListening(
+      lp.isEnglish ? "en" : "ar",
+          (text) async {
+        if (_isProcessing || !_shouldListen) return;
+        _isProcessing = true;
+
+        debugPrint("USER SAID (Profile): $text");
+        final response = await AIService.sendMessage(text);
+        final command = (response['command'] ?? "unknown").toString();
+        debugPrint("AI COMMAND (Profile): $command");
+
+        await _handleCommand(command, lp);
+
+        _isProcessing = false;
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (_shouldListen && mounted) _startListening(lp);
+        });
+      },
+      onError: (errorMsg) {
+        if (!_shouldListen || !mounted || _isProcessing) return;
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
+        });
+      },
+    );
   }
 
-  Future<void> _performLogout(BuildContext context) async {
+  Future<void> _handleCommand(String command, LanguageProvider lp) async {
+    if (!mounted) return;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    void pushAndResume(Widget page) {
+      _shouldListen = false;
+      Navigator.push(context, MaterialPageRoute(builder: (_) => page)).then((_) {
+        _shouldListen = true;
+        _isProcessing = false;
+        _speakIntro(lp);
+      });
+    }
+
+    switch (command) {
+      case "open_personal_info":
+        await audio.speak(
+          lp.isEnglish ? "Opening personal information." : "جاري فتح المعلومات الشخصية.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        pushAndResume(const PersonalInformationPage());
+        break;
+
+      case "open_addresses":
+        await audio.speak(
+          lp.isEnglish ? "Opening your addresses." : "جاري فتح العناوين.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        pushAndResume(const DeliveryAddressesPage());
+        break;
+
+      case "open_history":
+        await audio.speak(
+          lp.isEnglish ? "Opening order history." : "جاري فتح سجل الطلبات.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        pushAndResume(const OrderHistoryPage());
+        break;
+
+      case "open_favorites":
+        await audio.speak(
+          lp.isEnglish ? "Opening favorites." : "جاري فتح المفضلة.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        pushAndResume(const FavoritesPage());
+        break;
+
+      case "open_voice_settings":
+        await audio.speak(
+          lp.isEnglish ? "Opening voice settings." : "جاري فتح إعدادات الصوت.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        pushAndResume(const VoiceSettingsPage());
+        break;
+
+      case "open_notifications":
+        await audio.speak(
+          lp.isEnglish ? "Opening notifications." : "جاري فتح التنبيهات.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        pushAndResume(const NotificationsPage());
+        break;
+
+      case "logout":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Logging you out." : "جاري تسجيل الخروج.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        await _performLogout();
+        break;
+
+      case "go_back":
+        _shouldListen = false;
+
+        if (mounted) Navigator.pop(context);
+        break;
+
+      default:
+        await audio.speak(
+          lp.isEnglish
+              ? "Say personal info, addresses, order history, favorites, voice settings, notifications, or logout."
+              : "قل معلوماتي، عناويني، طلباتي، المفضلة، إعدادات الصوت، التنبيهات، أو تسجيل خروج.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+    }
+  }
+
+  Future<void> _performLogout() async {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (context) => const SignInScreen()),
+        MaterialPageRoute(builder: (_) => const SignInScreen()),
             (route) => false,
       );
     }
@@ -74,9 +198,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String _getInitials(String name) {
     if (name.isEmpty) return "??";
     List<String> names = name.trim().split(" ");
-    if (names.length > 1) {
-      return "${names[0][0]}${names[1][0]}".toUpperCase();
-    }
+    if (names.length > 1) return "${names[0][0]}${names[1][0]}".toUpperCase();
     return names[0][0].toUpperCase();
   }
 
@@ -98,280 +220,197 @@ class _ProfilePageState extends State<ProfilePage> {
 
           var userData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
           String displayName = userData['name'] ?? lp.getText('user_name_placeholder');
-          String displayPhone = userData['phone'] ?? lp.getText('no_phone_placeholder');
 
-          return SingleChildScrollView(
-            child: Column(
-              children: [
-                // Header Section
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.only(top: 60, bottom: 30, left: 20, right: 20),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFB71C1C), Color(0xFFD32F2F)],
+          return CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 220,
+                pinned: true,
+                backgroundColor: primaryRed,
+                flexibleSpace: FlexibleSpaceBar(
+                  background: Container(
+                    color: primaryRed,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 40),
+                        // Mic + Avatar
+                        GestureDetector(
+                          onTap: () {
+                            if (!audio.speech.isListening && !_isProcessing) {
+                              _shouldListen = true;
+                              _startListening(lp);
+                            }
+                          },
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              if (audio.isListening)
+                                Container(
+                                  width: 90, height: 90,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white.withOpacity(0.2),
+                                  ),
+                                ),
+                              CircleAvatar(
+                                radius: 40,
+                                backgroundColor: Colors.white,
+                                child: Text(
+                                  _getInitials(displayName),
+                                  style: const TextStyle(
+                                      fontSize: 28, color: primaryRed, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 0, right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: audio.isListening ? Colors.green : Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    audio.isListening ? Icons.graphic_eq : Icons.mic,
+                                    color: audio.isListening ? Colors.white : primaryRed,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(displayName,
+                            style: const TextStyle(
+                                fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
+                        Text(userData['phone'] ?? "",
+                            style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                      ],
                     ),
                   ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back, color: Colors.white),
-                            onPressed: () => Navigator.pushAndRemoveUntil(
-                              context,
-                              MaterialPageRoute(builder: (context) => const HomePage()),
-                                  (route) => false,
-                            ),
-                          ),
-                          Expanded(
-                            child: Center(
-                              child: Text(
-                                lp.getText('profile_title'),
-                                style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 48),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      CircleAvatar(
-                        radius: 45,
-                        backgroundColor: Colors.white,
-                        child: Text(
-                          _getInitials(displayName),
-                          style: const TextStyle(fontSize: 28, color: primaryRed, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                      Text(displayPhone, style: const TextStyle(color: Colors.white70, fontSize: 16)),
-                      const SizedBox(height: 25),
-
-                      // Voice Activation Button
-                      GestureDetector(
-                        onTap: () => _handleVoiceNavigation(audio, lp),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                              color: audio.isListening ? Colors.green : Colors.white24,
-                              shape: BoxShape.circle
-                          ),
-                          child: Icon(
-                              audio.isListening ? Icons.graphic_eq : Icons.mic,
-                              color: Colors.white,
-                              size: 35
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
-
-                Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildVoiceBar(primaryRed, lp, audio),
-                      const SizedBox(height: 30),
-                      _buildSectionTitle(lp.getText('recent_orders'), lp, onAction: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
-                      }),
-                      const SizedBox(height: 10),
-
-                      // Order Stream Logic
-                      _buildRecentOrdersStream(user, primaryRed, lp),
-
-                      const SizedBox(height: 30),
-                      _buildSectionTitle(lp.getText('section_account'), lp),
-                      _buildSettingsGroup([
-                        _buildSettingsTile(Icons.person_outline, lp.getText('personal_info_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalInformationPage()));
-                        }),
-                        _buildSettingsTile(Icons.location_on_outlined, lp.getText('delivery_addresses_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const DeliveryAddressesPage()));
-                        }),
-                        _buildSettingsTile(Icons.payment_outlined, lp.getText('payment_methods_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentMethodsPage()));
-                        }),
-                      ]),
-
-                      const SizedBox(height: 25),
-                      _buildSectionTitle(lp.getText('section_preferences'), lp),
-                      _buildSettingsGroup([
-                        _buildSettingsTile(Icons.notifications_none, lp.getText('notifications_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsPage()));
-                        }),
-                        _buildSettingsTile(Icons.language_rounded, lp.getText('language_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const LanguageSelectionScreen()));
-                        }),
-                        _buildSettingsTile(Icons.settings_voice_outlined, lp.getText('voice_settings_tile'), onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const VoiceSettingsPage()));
-                        }),
-                      ]),
-
-                      const SizedBox(height: 40),
-                      _buildLogoutButton(context, primaryRed, lp),
-                      const SizedBox(height: 20),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+              SliverList(
+                delegate: SliverChildListDelegate([
+                  const SizedBox(height: 20),
+                  _buildSection(lp.getText('account_section'), [
+                    _buildTile(Icons.person_outline, lp.getText('personal_info_title'), () {
+                      final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                      _shouldListen = false;
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const PersonalInformationPage()))
+                          .then((_) {
+                        _shouldListen = true;
+                        _isProcessing = false;
+                        _speakIntro(lp2);
+                      });
+                    }),
+                    _buildTile(Icons.location_on_outlined, lp.getText('address'), () {
+                      final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                      _shouldListen = false;
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const DeliveryAddressesPage()))
+                          .then((_) {
+                        _shouldListen = true;
+                        _isProcessing = false;
+                        _speakIntro(lp2);
+                      });
+                    }),
+                    _buildTile(Icons.receipt_long_outlined, lp.getText('order_history'), () {
+                      final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                      _shouldListen = false;
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const OrderHistoryPage()))
+                          .then((_) {
+                        _shouldListen = true;
+                        _isProcessing = false;
+                        _speakIntro(lp2);
+                      });
+                    }),
+                    _buildTile(Icons.favorite_outline, lp.getText('favorites resturant'), () {
+                      final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                      _shouldListen = false;
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const FavoritesPage()))
+                          .then((_) {
+                        _shouldListen = true;
+                        _isProcessing = false;
+                        _speakIntro(lp2);
+                      });
+                    }),
+                  ]),
+                  const SizedBox(height: 20),
+                  _buildSection(lp.getText('preferences_section'), [
+                    _buildTile(Icons.mic_none, lp.getText('voice_settings_title'), () {
+                      final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                      _shouldListen = false;
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const VoiceSettingsPage()))
+                          .then((_) {
+                        _shouldListen = true;
+                        _isProcessing = false;
+                        _speakIntro(lp2);
+                      });
+                    }),
+                    _buildTile(Icons.notifications_none, lp.getText('notifications_title'), () {
+                      final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                      _shouldListen = false;
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const NotificationsPage()))
+                          .then((_) {
+                        _shouldListen = true;
+                        _isProcessing = false;
+                        _speakIntro(lp2);
+                      });
+                    }),
+                  ]),
+                  const SizedBox(height: 20),
+                  _buildSection("", [
+                    _buildTile(Icons.logout, lp.getText('logout'),
+                            () => _performLogout(),
+                        color: Colors.red),
+                  ]),
+                  const SizedBox(height: 40),
+                ]),
+              ),
+            ],
           );
         },
       ),
     );
   }
 
-  // --- UI Helper Components ---
-
-  Widget _buildRecentOrdersStream(User? user, Color primaryRed, LanguageProvider lp) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('orders')
-          .where('userId', isEqualTo: user?.uid)
-          .orderBy('timestamp', descending: true)
-          .limit(2)
-          .snapshots(),
-      builder: (context, orderSnapshot) {
-        if (!orderSnapshot.hasData || orderSnapshot.data!.docs.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            child: Text(lp.getText('no_recent_orders'), style: const TextStyle(color: Colors.grey)),
-          );
-        }
-        return Column(
-          children: orderSnapshot.data!.docs.map((doc) {
-            var data = doc.data() as Map<String, dynamic>;
-            int itemCount = data['items']?.length ?? 0;
-            return _buildOrderCard(
-              data['restaurantName'] ?? lp.getText('restaurant_placeholder'),
-              "$itemCount ${lp.getText('items_label')}",
-              "SAR ${(data['totalPrice'] ?? 0.0).toStringAsFixed(2)}",
-              primaryRed,
-              lp,
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildVoiceBar(Color primaryRed, LanguageProvider lp, AppAudioProvider audio) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-      decoration: BoxDecoration(
-        color: audio.isListening ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: audio.isListening ? Colors.green : primaryRed.withOpacity(0.2)),
-      ),
-      child: Row(
-        children: [
-          Icon(audio.isListening ? Icons.graphic_eq : Icons.mic_none, color: audio.isListening ? Colors.green : primaryRed, size: 20),
-          const SizedBox(width: 10),
-          Text(
-              audio.isListening && audio.lastWords.isNotEmpty ? audio.lastWords : lp.getText('profile_voice_hint'),
-              style: const TextStyle(color: Colors.black54)
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, LanguageProvider lp, {VoidCallback? onAction}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildSection(String title, List<Widget> tiles) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        if (onAction != null)
-          TextButton(onPressed: onAction, child: Text(lp.getText('view_all'), style: const TextStyle(color: Color(0xFFD32F2F)))),
+        if (title.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Text(title,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
+          ),
+          child: Column(children: tiles),
+        ),
       ],
     );
   }
 
-  Widget _buildOrderCard(String name, String details, String price, Color accent, LanguageProvider lp) {
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.grey[200]!)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text(price, style: TextStyle(color: accent, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(details, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
-                  child: Text(lp.getText('status_delivered'), style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
-                )
-              ],
-            ),
-            const Divider(height: 24),
-            InkWell(
-              onTap: () {},
-              child: Row(
-                children: [
-                  Text(lp.getText('reorder_button'), style: TextStyle(color: accent, fontWeight: FontWeight.w600)),
-                  Icon(Icons.chevron_right, color: accent, size: 18),
-                ],
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSettingsGroup(List<Widget> tiles) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 5))],
-      ),
-      child: Column(children: tiles),
-    );
-  }
-
-  Widget _buildSettingsTile(IconData icon, String title, {VoidCallback? onTap}) {
+  Widget _buildTile(IconData icon, String title, VoidCallback onTap, {Color? color}) {
     return ListTile(
-      leading: Icon(icon, color: Colors.black87),
-      title: Text(title, style: const TextStyle(fontSize: 15)),
-      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+      leading: Icon(icon, color: color ?? const Color(0xFFD32F2F)),
+      title: Text(title, style: TextStyle(color: color ?? Colors.black87)),
+      trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
       onTap: onTap,
-    );
-  }
-
-  Widget _buildLogoutButton(BuildContext context, Color primaryRed, LanguageProvider lp) {
-    return SizedBox(
-      width: double.infinity,
-      height: 55,
-      child: ElevatedButton.icon(
-        onPressed: () => _performLogout(context),
-        icon: const Icon(Icons.logout),
-        label: Text(lp.getText('logout_button'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryRed,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        ),
-      ),
     );
   }
 }

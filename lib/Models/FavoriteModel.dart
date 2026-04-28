@@ -5,7 +5,14 @@ class FavoriteModel {
   final String rating;
   final String time;
   final String image;
-
+  factory FavoriteModel.empty() => FavoriteModel(
+    id: '',
+    name: '',
+    image: '',
+    rating: '0',
+    cuisine: '',
+    time: '',
+  );
   FavoriteModel({
     required this.id,
     required this.name,

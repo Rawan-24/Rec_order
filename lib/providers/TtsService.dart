@@ -4,38 +4,78 @@ import 'package:flutter_tts/flutter_tts.dart';
 class TtsService {
   final FlutterTts _tts = FlutterTts();
 
-  // Track settings locally within the service
-  double _currentRate = 0.5;
-  double _currentVolume = 1.0;
+  double _rate = 0.5;
+  double _volume = 1.0;
+  double _pitch = 1.0;
 
-  void setCompletionHandler(VoidCallback handler) {
-    _tts.setCompletionHandler(handler);
+  bool _initialized = false;
+
+  VoidCallback? _onComplete;
+
+  // ─────────────────────────────
+  // INIT
+  // ─────────────────────────────
+  Future<void> init() async {
+    if (_initialized) return;
+
+    await _tts.setLanguage("en-US");
+    await _tts.setSpeechRate(_rate);
+    await _tts.setVolume(_volume);
+    await _tts.setPitch(_pitch);
+
+    _initialized = true;
+
+    // Connect FlutterTTS completion event
+    _tts.setCompletionHandler(() {
+      if (_onComplete != null) {
+        _onComplete!();
+      }
+    });
   }
 
-  // NEW: Setter for Speech Rate
-  Future<void> setRate(double rate) async {
-    _currentRate = rate;
-    await _tts.setSpeechRate(rate);
-  }
-
-  // NEW: Setter for Volume
-  Future<void> setVolume(double volume) async {
-    _currentVolume = volume;
-    await _tts.setVolume(volume);
-  }
-
+  // ─────────────────────────────
+  // SPEAK
+  // ─────────────────────────────
   Future<void> speak(String text, String langCode) async {
-    final String ttsLang = langCode.contains('ar') ? 'ar-EG' : 'en-US';
+    await init();
 
-    await _tts.setLanguage(ttsLang);
-    await _tts.setPitch(1.0);
+    final String lang =
+    langCode.contains("ar") ? "ar-EG" : "en-US";
 
-    // UPDATED: Use the stored rate and volume instead of hardcoded values
-    await _tts.setSpeechRate(_currentRate);
-    await _tts.setVolume(_currentVolume);
+    await _tts.setLanguage(lang);
+    await _tts.setSpeechRate(_rate);
+    await _tts.setVolume(_volume);
+    await _tts.setPitch(_pitch);
 
     await _tts.speak(text);
   }
 
-  Future<void> stop() async => await _tts.stop();
+  // ─────────────────────────────
+  // STOP
+  // ─────────────────────────────
+  Future<void> stop() async {
+    await _tts.stop();
+  }
+
+  // ─────────────────────────────
+  // SETTINGS
+  // ─────────────────────────────
+  void setRate(double rate) {
+    _rate = rate;
+  }
+
+  void setVolume(double volume) {
+    _volume = volume;
+  }
+
+  void setPitch(double pitch) {
+    _pitch = pitch;
+  }
+
+  // ─────────────────────────────
+  // COMPLETION HANDLER (FIXED)
+  // ─────────────────────────────
+  void setCompletionHandler(VoidCallback handler) {
+    _onComplete = handler;
+  }
 }

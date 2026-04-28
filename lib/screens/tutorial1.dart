@@ -3,6 +3,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/providers/AudioProvider.dart';
+import 'package:grad_project/services/ai_service.dart';
 import 'Sign_in.dart';
 
 class VoiceOnboardingScreen extends StatefulWidget {
@@ -16,97 +17,201 @@ class VoiceOnboardingScreen extends StatefulWidget {
 class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   final PageController _controller = PageController();
   int currentPage = 0;
-  late stt.SpeechToText _speech;
+
+  bool _shouldListen = true;
+  bool _isProcessing = false;
   bool isListening = false;
+
   final Color primaryRed = const Color(0xFFEB1B33);
+
+  // ─────────────────────────────────────────
+  // Flow states
+  //   "intro"   → screen just opened, ask user if they want tutorial
+  //   "playing" → a tutorial slide is being announced, waiting for input
+  // ─────────────────────────────────────────
+  String _flowState = "intro";
 
   @override
   void initState() {
     super.initState();
-    _speech = stt.SpeechToText();
-    // Automatically start the voice flow when the screen opens
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announceAndListen();
+
+    // Always reset to page 0 so tutorial always starts from the beginning
+    currentPage = 0;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+      _runIntro();
     });
   }
 
-  /// Speaks the current slide content then automatically opens the microphone
-  void _announceAndListen() async {
+  // ─────────────────────────────────────────
+  // STEP 1 — Intro: "say continue or skip"
+  // ─────────────────────────────────────────
+  Future<void> _runIntro() async {
+    if (!mounted) return;
     final lp = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
     await audio.stop();
+    _flowState = "intro";
 
-    String titleKey = 'ob_title_${currentPage + 1}';
-    String subKey = 'ob_sub_${currentPage + 1}';
-    String message = "${lp.getText(titleKey)}. ${lp.getText(subKey)}";
+    final msg = lp.isEnglish
+        ? "This is the tutorial screen. "
+        "Say continue to start the tutorial, or say skip to go to sign in."
+        : "هذه شاشة الشرح. "
+        "قل اكمل لبدء الشرح، أو قل تخطى للذهاب إلى تسجيل الدخول.";
 
-    // App speaks first
-    await audio.speak(message, lp.currentLanguage);
+    await audio.speak(msg, lp.currentLanguage);
 
-    // Once finished speaking, mic opens automatically
-    if (mounted) _startAlwaysListening(lp);
+    if (mounted) {
+      _shouldListen = true;
+      _startListening();
+    }
   }
 
-  /// Initializes the mic and sets up a loop to keep it active
-  void _startAlwaysListening(LanguageProvider lp) async {
-    bool available = await _speech.initialize(
-      onError: (val) => setState(() => isListening = false),
-      onStatus: (status) {
-        // This loop keeps the mic "Always Open"
-        if (status == 'done' || status == 'notListening') {
-          setState(() => isListening = false);
-          if (mounted) _startAlwaysListening(lp);
+  // ─────────────────────────────────────────
+  // STEP 2 — Announce current tutorial page, then listen
+  // ─────────────────────────────────────────
+  Future<void> _announceTutorialPage() async {
+    if (!mounted) return;
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    await audio.stop();
+    _flowState = "playing";
+
+    // Jump the PageView to currentPage (always starts at 0)
+    _controller.jumpToPage(currentPage);
+
+    final titleKey = 'ob_title_${currentPage + 1}';
+    final subKey = 'ob_sub_${currentPage + 1}';
+    final title = lp.getText(titleKey);
+    final sub = lp.getText(subKey);
+
+    final prompt = lp.isEnglish
+        ? "$title. $sub. Say continue for the next tip, or say skip to finish."
+        : "$title. $sub. قل اكمل للتالي، أو قل تخطى للانتهاء.";
+
+    await audio.speak(prompt, lp.currentLanguage);
+
+    if (mounted) {
+      _shouldListen = true;
+      _startListening();
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // ALWAYS-ON LISTEN LOOP  (same pattern as SignIn)
+  // ─────────────────────────────────────────
+  void _startListening() async {
+    if (!_shouldListen || !mounted) return;
+
+    final lp = Provider.of<LanguageProvider>(context, listen: false);
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    if (audio.speech.isListening) {
+      debugPrint("Mic already open — skipping duplicate start");
+      return;
+    }
+
+    await audio.toggleListening(
+      lp.isEnglish ? "en" : "ar",
+      // ── onResult ──────────────────────────────────────────────
+          (text) async {
+        if (_isProcessing || !_shouldListen) return;
+        _isProcessing = true;
+
+        setState(() => isListening = false);
+        print("USER SAID: $text");
+
+        final response = await AIService.sendMessage(text);
+        final command = (response['command'] ?? "unknown").toString();
+
+        print("AI COMMAND: $command");
+
+        if (command == "next") {
+          await _handleContinue();
+        } else if (command == "skip") {
+          await _handleSkip();
+        } else {
+          // Unrecognised — re-prompt
+          final audio2 =
+          Provider.of<AppAudioProvider>(context, listen: false);
+          final reprompt = lp.isEnglish
+              ? "Say continue or skip."
+              : "قل اكمل أو تخطى.";
+          await audio2.speak(reprompt, lp.currentLanguage);
         }
+
+        _isProcessing = false;
+
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (_shouldListen && mounted) _startListening();
+        });
+      },
+      // ── onError: retry on silence / no-match ──────────────────
+      onError: (errorMsg) {
+        debugPrint("STT error in Onboarding: $errorMsg — scheduling retry");
+        if (!_shouldListen || !mounted || _isProcessing) return;
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (_shouldListen && mounted && !_isProcessing) _startListening();
+        });
       },
     );
 
-    if (available && mounted) {
-      setState(() => isListening = true);
-      _speech.listen(
-        localeId: lp.isEnglish ? "en-US" : "ar-EG",
-        onResult: (result) {
-          String text = result.recognizedWords.toLowerCase();
-
-          // Command: NEXT
-          if (text.contains("next") || text.contains("التالي") || text.contains("ثاني")) {
-            nextPage();
-          }
-          // Command: SKIP
-          else if (text.contains("skip") || text.contains("تخطي") || text.contains("عدي") || text.contains("خلاص")) {
-            skip();
-          }
-        },
-      );
-    }
+    setState(() => isListening = true);
   }
 
-  void nextPage() {
-    if (currentPage < 2) {
-      _controller.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+  // ─────────────────────────────────────────
+  // NAVIGATION HANDLERS
+  // ─────────────────────────────────────────
+
+  /// "Continue" from intro → start tutorial at page 0
+  /// "Continue" from a tutorial page → advance to next, or skip if last
+  Future<void> _handleContinue() async {
+    if (_flowState == "intro") {
+      // User chose to hear the tutorial — jump to page 0
+      currentPage = 0;
+      setState(() {});
+      await _announceTutorialPage();
     } else {
-      skip();
+      // Playing a tutorial page
+      if (currentPage < 2) {
+        currentPage++;
+        setState(() {});
+        await _announceTutorialPage();
+      } else {
+        // Last page done — go to sign in
+        await _handleSkip();
+      }
     }
   }
 
-  void skip() {
-    _speech.stop(); // Release mic hardware before navigating
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const SignInScreen()),
-    );
+  /// "Skip" at any point → stop and go to SignIn
+  Future<void> _handleSkip() async {
+    _shouldListen = false;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    await audio.stop();
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const SignInScreen()),
+      );
+    }
   }
 
   @override
   void dispose() {
-    _speech.stop();
+    _shouldListen = false;
     _controller.dispose();
     super.dispose();
   }
 
+  // ─────────────────────────────────────────
+  // UI
+  // ─────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
@@ -116,16 +221,21 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Skip button layout
+            // Skip button
             Align(
-              alignment: lp.isRTL ? Alignment.topLeft : Alignment.topRight,
+              alignment:
+              lp.isRTL ? Alignment.topLeft : Alignment.topRight,
               child: Padding(
-                padding: const EdgeInsets.only(top: 10, left: 15, right: 15),
+                padding:
+                const EdgeInsets.only(top: 10, left: 15, right: 15),
                 child: TextButton(
-                  onPressed: skip,
+                  onPressed: _handleSkip,
                   child: Text(
                     lp.getText('skip'),
-                    style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                        color: primaryRed,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16),
                   ),
                 ),
               ),
@@ -134,44 +244,21 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
             Expanded(
               child: PageView(
                 controller: _controller,
-                onPageChanged: (index) {
-                  setState(() => currentPage = index);
-                  _announceAndListen();
-                },
+                // Disable manual swipe — navigation is voice-only
+                physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildPage(lp.getText('ob_title_1'), lp.getText('ob_sub_1')),
-                  _buildPage(lp.getText('ob_title_2'), lp.getText('ob_sub_2')),
-                  _buildPage(lp.getText('ob_title_3'), lp.getText('ob_sub_3')),
+                  _buildPage(
+                      lp.getText('ob_title_1'), lp.getText('ob_sub_1')),
+                  _buildPage(
+                      lp.getText('ob_title_2'), lp.getText('ob_sub_2')),
+                  _buildPage(
+                      lp.getText('ob_title_3'), lp.getText('ob_sub_3')),
                 ],
               ),
             ),
 
             _buildDots(),
             const SizedBox(height: 35),
-
-            // Button Action
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 30),
-              child: SizedBox(
-                width: double.infinity,
-                height: 60,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryRed,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                    elevation: 4,
-                    shadowColor: primaryRed.withOpacity(0.3),
-                  ),
-                  onPressed: nextPage,
-                  child: Text(
-                    currentPage == 2 ? lp.getText('start_btn') : lp.getText('next_btn'),
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
             _buildVoiceIndicator(lp),
             const SizedBox(height: 30),
           ],
@@ -189,25 +276,30 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           children: [
             if (isListening) const _PulseAnimation(),
             Container(
-              width: 130, height: 130,
+              width: 130,
+              height: 130,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: primaryRed,
-                boxShadow: [BoxShadow(color: primaryRed.withOpacity(0.3), blurRadius: 25, offset: const Offset(0, 8))],
-              ),
-              child: const Icon(Icons.mic_rounded, color: Colors.white, size: 55),
+                  shape: BoxShape.circle, color: primaryRed),
+              child: const Icon(Icons.mic_rounded,
+                  color: Colors.white, size: 55),
             ),
           ],
         ),
         const SizedBox(height: 50),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+          child: Text(title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 26, fontWeight: FontWeight.w900)),
         ),
         const SizedBox(height: 15),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 45),
-          child: Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[700], fontSize: 16, height: 1.4)),
+          child: Text(subtitle,
+              textAlign: TextAlign.center,
+              style:
+              TextStyle(color: Colors.grey[700], fontSize: 16)),
         ),
       ],
     );
@@ -223,7 +315,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
           width: currentPage == index ? 28 : 10,
           height: 10,
           decoration: BoxDecoration(
-            color: currentPage == index ? primaryRed : Colors.grey.shade300,
+            color: currentPage == index
+                ? primaryRed
+                : Colors.grey.shade300,
             borderRadius: BorderRadius.circular(10),
           ),
         );
@@ -232,54 +326,76 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   }
 
   Widget _buildVoiceIndicator(LanguageProvider lp) {
+    // Show contextual hint based on flow state
+    String hint;
+    if (!isListening) {
+      hint = lp.isRTL ? "جاري التحميل..." : "Initializing...";
+    } else if (_flowState == "intro") {
+      hint = lp.isRTL ? "قل اكمل أو تخطى" : 'Say "continue" or "skip"';
+    } else {
+      hint = lp.isRTL ? "أنا أسمعك الآن..." : "Listening...";
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30)),
+      padding:
+      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(isListening ? Icons.graphic_eq : Icons.mic_none, size: 18, color: primaryRed),
+          Icon(
+              isListening ? Icons.graphic_eq : Icons.mic_none,
+              size: 18,
+              color: primaryRed),
           const SizedBox(width: 10),
-          Text(
-            isListening
-                ? (lp.isRTL ? "أنا أسمعك الآن..." : "Listening...")
-                : (lp.isRTL ? "جاري التحميل..." : "Initializing..."),
-            style: TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w600, fontSize: 13),
-          ),
+          Text(hint),
         ],
       ),
     );
   }
 }
 
-// --- Pulse Animation Class ---
+// ───────── Pulse Animation ─────────
 class _PulseAnimation extends StatefulWidget {
   const _PulseAnimation();
+
   @override
   State<_PulseAnimation> createState() => _PulseAnimationState();
 }
 
-class _PulseAnimationState extends State<_PulseAnimation> with SingleTickerProviderStateMixin {
+class _PulseAnimationState extends State<_PulseAnimation>
+    with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
+
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 1))..repeat();
+    _pulseController =
+    AnimationController(vsync: this, duration: const Duration(seconds: 3))
+      ..repeat();
   }
+
   @override
   void dispose() {
     _pulseController.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
-      opacity: Tween<double>(begin: 0.6, end: 0.0).animate(_pulseController),
+      opacity:
+      Tween<double>(begin: 0.6, end: 0.0).animate(_pulseController),
       child: ScaleTransition(
-        scale: Tween<double>(begin: 1.0, end: 1.6).animate(_pulseController),
+        scale:
+        Tween<double>(begin: 1.0, end: 1.6).animate(_pulseController),
         child: Container(
-          width: 130, height: 130,
-          decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFEB1B33)),
+          width: 130,
+          height: 130,
+          decoration: const BoxDecoration(
+              shape: BoxShape.circle, color: Color(0xFFEB1B33)),
         ),
       ),
     );

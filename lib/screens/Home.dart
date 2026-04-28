@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// Your existing project imports
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/providers/AudioProvider.dart';
@@ -11,7 +10,11 @@ import 'package:grad_project/screens/profile.dart';
 import 'package:grad_project/screens/TrackOrderScreen.dart';
 import 'package:grad_project/screens/favorites.dart';
 import 'package:grad_project/screens/history.dart';
+import 'package:grad_project/services/ai_service.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// BOTTOM NAV SHELL
+// ─────────────────────────────────────────────────────────────────────────────
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -24,14 +27,11 @@ class _HomePageState extends State<HomePage> {
 
   final List<Widget> _pages = [
     const HomeContent(),
-    const TrackOrderScreen(orderId: ''),
     const ProfilePage(),
   ];
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    setState(() => _selectedIndex = index);
   }
 
   @override
@@ -56,10 +56,6 @@ class _HomePageState extends State<HomePage> {
             label: lp.getText('nav_home'),
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.inventory_2_outlined),
-            label: lp.getText('nav_orders'),
-          ),
-          BottomNavigationBarItem(
             icon: const Icon(Icons.person_outline),
             label: lp.getText('nav_profile'),
           ),
@@ -68,7 +64,9 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
-
+// ─────────────────────────────────────────────────────────────────────────────
+// HOME CONTENT — with AI + always-on voice loop
+// ─────────────────────────────────────────────────────────────────────────────
 class HomeContent extends StatefulWidget {
   const HomeContent({super.key});
 
@@ -77,56 +75,227 @@ class HomeContent extends StatefulWidget {
 }
 
 class _HomeContentState extends State<HomeContent> {
+  bool _shouldListen = true;
+  bool _isProcessing = false;
+
+  // ─────────────────────────────────────────
+  // INIT
+  // ─────────────────────────────────────────
   @override
   void initState() {
     super.initState();
-    // Auto-greet the user when the page loads
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announceArrival();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final audio = Provider.of<AppAudioProvider>(context, listen: false);
+      final lp = Provider.of<LanguageProvider>(context, listen: false);
+
+      await Future.delayed(const Duration(milliseconds: 800));
+      await audio.initSpeech();
+      await _speakIntro(lp);
     });
   }
 
-  void _announceArrival() {
-    final lp = Provider.of<LanguageProvider>(context, listen: false);
+  // ─────────────────────────────────────────
+  // DISPOSE
+  // ─────────────────────────────────────────
+  @override
+  void dispose() {
+    _shouldListen = false;
+    super.dispose();
+  }
+
+  // ─────────────────────────────────────────
+  // INTRO
+  // ─────────────────────────────────────────
+  Future<void> _speakIntro(LanguageProvider lp) async {
+    if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    // Combining "Hello" and "What would you like to eat today?"
-    String msg = "${lp.getText('hello')}! ${lp.getText('home_subtitle')}";
-    audio.speak(msg, lp.currentLanguage);
+    await audio.stop();
+    await audio.speak(
+      lp.isEnglish
+          ? "Home screen. Say order food, track order, favorites, history, or profile."
+          : "الشاشة الرئيسية. قل اطلب أكل، تتبع الطلب، المفضلة، السجل، أو حسابي.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+
+    if (mounted) {
+      _shouldListen = true;
+      _startListening(lp);
+    }
   }
 
-  void _handleVoiceInteraction(BuildContext context, AppAudioProvider audio, LanguageProvider lp) async {
-    await audio.toggleListening(lp.currentLanguage, (recognizedWords) async {
-      String command = recognizedWords.toLowerCase();
+  // ─────────────────────────────────────────
+  // ALWAYS-ON LISTEN LOOP
+  // ─────────────────────────────────────────
+  void _startListening(LanguageProvider lp) async {
+    if (!_shouldListen || !mounted) return;
 
-      // Navigation Logic (English & Arabic)
-      if (command.contains("اطلب") || command.contains("مطعم") || command.contains("order")) {
-        audio.speak(lp.isRTL ? "حاضر، هفتحلك المطاعم" : "Opening restaurants", lp.currentLanguage);
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const RestaurantsScreen()));
-      }
-      else if (command.contains("حسابي") || command.contains("بروفايل") || command.contains("profile")) {
-        audio.speak(lp.isRTL ? "فتحتلك صفحتك الشخصية" : "Opening your profile", lp.currentLanguage);
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfilePage()));
-      }
-      else if (command.contains("تتبع") || command.contains("فين") || command.contains("track")) {
-        audio.speak(lp.isRTL ? "بنشوف طلبك فين" : "Checking your order status", lp.currentLanguage);
-        String? id = await DatabaseService().getActiveOrderId();
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    if (audio.speech.isListening) {
+      debugPrint("Mic already open — skipping duplicate start");
+      return;
+    }
+
+    await audio.toggleListening(
+      lp.isEnglish ? "en" : "ar",
+
+      // ── onResult ────────────────────────────────────────────
+          (text) async {
+        if (_isProcessing || !_shouldListen) return;
+        _isProcessing = true;
+
+        debugPrint("USER SAID: $text");
+
+        final response = await AIService.sendMessage(text);
+        final command = (response['command'] ?? "unknown").toString();
+
+        debugPrint("AI COMMAND: $command");
+
+        await _handleCommand(command, lp);
+
+        _isProcessing = false;
+
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (_shouldListen && mounted) _startListening(lp);
+        });
+      },
+
+      // ── onError: retry on silence / no-match ────────────────
+      onError: (errorMsg) {
+        debugPrint("STT error on Home: $errorMsg — scheduling retry");
+        if (!_shouldListen || !mounted || _isProcessing) return;
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
+        });
+      },
+    );
+  }
+
+  // ─────────────────────────────────────────
+  // COMMAND HANDLER
+  // ─────────────────────────────────────────
+  Future<void> _handleCommand(String command, LanguageProvider lp) async {
+    if (!mounted) return;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    switch (command) {
+
+    // ── Open restaurants ───────────────────────────────────
+      case "open_restaurants":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Opening restaurants." : "جاري فتح المطاعم.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
         if (mounted) {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: id ?? "")));
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const RestaurantsScreen()),
+          ).then((_) => _resumeListening(lp));
         }
-      }
-      else if (command.contains("مفضل") || command.contains("favorite")) {
-        audio.speak(lp.isRTL ? "إليك مطاعمك المفضلة" : "Here are your favorites", lp.currentLanguage);
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
-      }
-    });
+        break;
+
+    // ── Track order ────────────────────────────────────────
+      case "open_track":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Checking your order." : "جاري تتبع طلبك.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        final id = await DatabaseService().getActiveOrderId();
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => TrackOrderScreen(orderId: id ?? "")),
+          ).then((_) => _resumeListening(lp));
+        }
+        break;
+
+    // ── Open favorites ─────────────────────────────────────
+      case "open_favorites":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Opening your favorites." : "جاري فتح المفضلة.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const FavoritesPage()),
+          ).then((_) => _resumeListening(lp));
+        }
+        break;
+
+    // ── Open history ───────────────────────────────────────
+      case "open_history":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Opening your order history." : "جاري فتح سجل الطلبات.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const OrderHistoryPage()),
+          ).then((_) => _resumeListening(lp));
+        }
+        break;
+
+    // ── Open profile ───────────────────────────────────────
+      case "open_profile":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Opening your profile." : "جاري فتح حسابك.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ProfilePage()),
+          ).then((_) => _resumeListening(lp));
+        }
+        break;
+
+    // ── Repeat available commands ──────────────────────────
+      case "read_commands":
+        await audio.speak(
+          lp.isEnglish
+              ? "You can say: order food, track order, favorites, history, or profile."
+              : "يمكنك قول: اطلب أكل، تتبع الطلب، المفضلة، السجل، أو حسابي.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        break;
+
+    // ── Fallback ───────────────────────────────────────────
+      default:
+        await audio.speak(
+          lp.isEnglish
+              ? "Say order food, track order, favorites, history, or profile."
+              : "قل اطلب أكل، تتبع الطلب، المفضلة، السجل، أو حسابي.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+    }
   }
 
-  Widget buildQuickAction(
+  // ─────────────────────────────────────────
+  // RESUME after returning from pushed screen
+  // ─────────────────────────────────────────
+  void _resumeListening(LanguageProvider lp) {
+    if (!mounted) return;
+    _shouldListen = true;
+    _isProcessing = false;
+    _speakIntro(lp); // re-announce and restart loop
+  }
+
+  // ─────────────────────────────────────────
+  // QUICK ACTION CARD
+  // ─────────────────────────────────────────
+  Widget _buildQuickAction(
       BuildContext context,
       String text,
       IconData icon,
-      Color iconBgColor,
       VoidCallback onTap,
       ) {
     return Expanded(
@@ -151,7 +320,7 @@ class _HomeContentState extends State<HomeContent> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: iconBgColor,
+                  color: const Color(0xFFEB1B33),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: Colors.white, size: 24),
@@ -159,7 +328,8 @@ class _HomeContentState extends State<HomeContent> {
               const SizedBox(height: 10),
               Text(
                 text,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               ),
             ],
           ),
@@ -168,6 +338,9 @@ class _HomeContentState extends State<HomeContent> {
     );
   }
 
+  // ─────────────────────────────────────────
+  // BUILD
+  // ─────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
@@ -181,23 +354,26 @@ class _HomeContentState extends State<HomeContent> {
           children: [
             const SizedBox(height: 40),
 
-            // --- GREETING SECTION ---
+            // ── Greeting ───────────────────────────────────────
             StreamBuilder<DocumentSnapshot>(
               stream: DatabaseService().getUserDataStream(),
               builder: (context, snapshot) {
                 String displayName = "";
                 if (snapshot.hasData && snapshot.data!.exists) {
-                  Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
+                  final data = snapshot.data!.data() as Map<String, dynamic>;
                   displayName = data['name'] ?? "";
                 }
-                String fullGreeting = "${lp.getText('hello')} ${displayName.isEmpty ? '' : displayName}!".trim();
+                final greeting =
+                "${lp.getText('hello')} ${displayName.isEmpty ? '' : displayName}!"
+                    .trim();
 
                 return Row(
                   children: [
                     Expanded(
                       child: Text(
-                        fullGreeting,
-                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                        greeting,
+                        style: const TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.bold),
                       ),
                     ),
                     const Text("👋", style: TextStyle(fontSize: 24)),
@@ -214,24 +390,38 @@ class _HomeContentState extends State<HomeContent> {
 
             const Spacer(flex: 2),
 
-            // --- CENTRAL MICROPHONE ---
+            // ── Central mic ────────────────────────────────────
             Center(
               child: Column(
                 children: [
+                  // Listening status label
                   Text(
                     audio.isListening
-                        ? (lp.isRTL ? "أنا بسمعك..." : "Listening...")
-                        : lp.getText('tap_to_speak'),
+                        ? (lp.isEnglish ? "Listening..." : "أنا بسمعك...")
+                        : (lp.isEnglish ? "Tap to speak" : "اضغط للتحدث"),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 16,
-                      color: audio.isListening ? const Color(0xFFEB1B33) : Colors.black45,
-                      fontWeight: audio.isListening ? FontWeight.bold : FontWeight.normal,
+                      color: audio.isListening
+                          ? const Color(0xFFEB1B33)
+                          : Colors.black45,
+                      fontWeight: audio.isListening
+                          ? FontWeight.bold
+                          : FontWeight.normal,
                     ),
                   ),
                   const SizedBox(height: 20),
+
+                  // Mic button — tap restarts the loop manually
                   GestureDetector(
-                    onTap: () => _handleVoiceInteraction(context, audio, lp),
+                    onTap: () {
+                      final lp = Provider.of<LanguageProvider>(context,
+                          listen: false);
+                      if (!audio.speech.isListening && !_isProcessing) {
+                        _shouldListen = true;
+                        _startListening(lp);
+                      }
+                    },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 250),
                       width: audio.isListening ? 100 : 80,
@@ -244,7 +434,7 @@ class _HomeContentState extends State<HomeContent> {
                             color: const Color(0xFFEB1B33).withOpacity(0.4),
                             blurRadius: audio.isListening ? 30 : 10,
                             spreadRadius: audio.isListening ? 12 : 2,
-                          )
+                          ),
                         ],
                       ),
                       child: Icon(
@@ -254,51 +444,164 @@ class _HomeContentState extends State<HomeContent> {
                       ),
                     ),
                   ),
+
+                  const SizedBox(height: 12),
+
+                  // Mic status pill
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          audio.isListening
+                              ? Icons.graphic_eq
+                              : Icons.mic_none,
+                          size: 16,
+                          color: const Color(0xFFEB1B33),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          audio.isListening
+                              ? (lp.isEnglish
+                              ? "Listening..."
+                              : "أنا أسمعك الآن...")
+                              : (lp.isEnglish
+                              ? "Ready"
+                              : "جاهز"),
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey[700]),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
 
             const Spacer(flex: 3),
 
+            // ── Quick actions label ────────────────────────────
             Text(
               lp.getText('quick_actions'),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 16),
 
+            // ── Row 1 ──────────────────────────────────────────
             Row(
               children: [
-                buildQuickAction(context, lp.getText('action_order'), Icons.restaurant, const Color(0xFFEB1B33), () {
-                  audio.speak(lp.isRTL ? "طلب الطعام" : "Let's order some food", lp.currentLanguage);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const RestaurantsScreen()));
-                }),
+                _buildQuickAction(
+                  context,
+                  lp.getText('action_order'),
+                  Icons.restaurant,
+                      () async {
+                    _shouldListen = false;
+                    await audio.speak(
+                      lp.isEnglish
+                          ? "Opening restaurants."
+                          : "جاري فتح المطاعم.",
+                      lp.isEnglish ? "en-US" : "ar-SA",
+                    );
+                    if (mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const RestaurantsScreen()),
+                      ).then((_) => _resumeListening(lp));
+                    }
+                  },
+                ),
                 const SizedBox(width: 16),
-                buildQuickAction(context, lp.getText('action_track'), Icons.inventory_2, const Color(0xFFEB1B33), () async {
-                  audio.speak(lp.isRTL ? "بنشوف طلبك فين" : "Checking your order", lp.currentLanguage);
-                  String? id = await DatabaseService().getActiveOrderId();
-                  if (context.mounted) {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => TrackOrderScreen(orderId: id ?? "")));
-                  }
-                }),
+                _buildQuickAction(
+                  context,
+                  lp.getText('action_track'),
+                  Icons.inventory_2,
+                      () async {
+                    _shouldListen = false;
+                    await audio.speak(
+                      lp.isEnglish
+                          ? "Checking your order."
+                          : "جاري تتبع طلبك.",
+                      lp.isEnglish ? "en-US" : "ar-SA",
+                    );
+                    final id = await DatabaseService().getActiveOrderId();
+                    if (mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                TrackOrderScreen(orderId: id ?? "")),
+                      ).then((_) => _resumeListening(lp));
+                    }
+                  },
+                ),
               ],
             ),
 
             const SizedBox(height: 16),
 
+            // ── Row 2 ──────────────────────────────────────────
             Row(
               children: [
-                buildQuickAction(context, lp.getText('action_reorder'), Icons.history, const Color(0xFFEB1B33), () {
-                  audio.speak(lp.isRTL ? "بفتح سجل الطلبات" : "Opening history", lp.currentLanguage);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const OrderHistoryPage()));
-                }),
+                _buildQuickAction(
+                  context,
+                  lp.getText('action_reorder'),
+                  Icons.history,
+                      () async {
+                    _shouldListen = false;
+                    await audio.speak(
+                      lp.isEnglish
+                          ? "Opening order history."
+                          : "جاري فتح السجل.",
+                      lp.isEnglish ? "en-US" : "ar-SA",
+                    );
+                    if (mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const OrderHistoryPage()),
+                      ).then((_) => _resumeListening(lp));
+                    }
+                  },
+                ),
                 const SizedBox(width: 16),
-                buildQuickAction(context, lp.getText('action_favorites'), Icons.favorite_border, const Color(0xFFEB1B33), () {
-                  audio.speak(lp.isRTL ? "مطاعمك المفضلة" : "Your favorite restaurants", lp.currentLanguage);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesPage()));
-                }),
+                _buildQuickAction(
+                  context,
+                  lp.getText('action_favorites'),
+                  Icons.favorite_border,
+                      () async {
+                    _shouldListen = false;
+                    await audio.speak(
+                      lp.isEnglish
+                          ? "Opening favorites."
+                          : "جاري فتح المفضلة.",
+                      lp.isEnglish ? "en-US" : "ar-SA",
+                    );
+                    if (mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const FavoritesPage()),
+                      ).then((_) => _resumeListening(lp));
+                    }
+                  },
+                ),
               ],
             ),
+
             const SizedBox(height: 30),
           ],
         ),

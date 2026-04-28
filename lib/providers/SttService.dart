@@ -3,37 +3,46 @@ import 'package:speech_to_text/speech_to_text.dart';
 class SttService {
   final SpeechToText _speech = SpeechToText();
 
-  /// Added [onDone] as an optional named parameter to support the recursive loop
+  Future<bool> init() async {
+    return await _speech.initialize(
+      onError: (val) => print("STT Error: $val"),
+      onStatus: (status) => print("STT Status: $status"),
+    );
+  }
+
   Future<void> listen(
       String langCode,
       Function(String) onResult,
-      {Function? onDone}
       ) async {
-    // Initialize with a status listener to detect when the engine stops
+
     bool available = await _speech.initialize(
-      onStatus: (status) {
-        // 'done' or 'notListening' means the hardware is free to be restarted
-        if (status == 'done' || status == 'notListening') {
-          if (onDone != null) {
-            onDone();
-          }
-        }
-      },
       onError: (val) => print('STT Error: $val'),
     );
 
-    if (available) {
-      // Map the app's simple lang code to the locale expected by speech_to_text
-      final String localeId = (langCode == 'ar') ? 'ar_EG' : 'en_US';
+    if (!available) return;
 
-      await _speech.listen(
-        localeId: localeId,
-        onResult: (val) => onResult(val.recognizedWords),
-        // Ensures the mic doesn't close too quickly during short pauses
-        listenMode: ListenMode.confirmation,
-      );
-    }
+    // ✅ FIX: dynamic locale instead of hardcoding Arabic
+    String locale = (langCode == "ar") ? "ar_EG" : "en_US";
+
+    await _speech.listen(
+      localeId: locale,
+      listenFor: const Duration(hours: 24),
+      pauseFor: const Duration(seconds: 3),
+      partialResults: true, // 🔥 ADD THIS
+      listenMode: ListenMode.dictation,
+
+      onResult: (result) {
+        final text = result.recognizedWords;
+        if (text.isNotEmpty) {
+          onResult(text);
+        }
+      },
+    );
   }
 
-  void stop() => _speech.stop();
+  void stop() {
+    _speech.stop();
+  }
+
+  bool get isListening => _speech.isListening;
 }

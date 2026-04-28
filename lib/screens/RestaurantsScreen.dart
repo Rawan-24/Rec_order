@@ -1,12 +1,15 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'package:grad_project/Models/Restaurant.dart';
-import 'package:grad_project/screens/RestaurantData.dart';
 import 'package:grad_project/screens/Menu.dart';
 import 'package:grad_project/screens/RestaurantCard.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
-import 'package:grad_project/providers/AudioProvider.dart'; // Ensure this is imported
+import 'package:grad_project/providers/AudioProvider.dart';
+
+import '../Models/FavoriteModel.dart';
+import '../services/ai_service.dart';
 
 class RestaurantsScreen extends StatefulWidget {
   static const String routeName = "RestaurantsScreen";
@@ -19,65 +22,384 @@ class RestaurantsScreen extends StatefulWidget {
 class _RestaurantsScreenState extends State<RestaurantsScreen> {
   final DatabaseService _dbService = DatabaseService();
   String _currentFilter = 'reset';
+  List<Restaurant> _loadedRestaurants = [];
+  List<FavoriteModel> _currentFavorites = [];
+
+  bool _shouldListen = true;
+  bool _isProcessing = false;
+
+  // ── FIX 1: Cache streams so StreamBuilder never sees a new stream on rebuild ──
+  late final Stream<List<Restaurant>> _restaurantsStream;
+  late final Stream<List<FavoriteModel>> _favoritesStream;
 
   @override
   void initState() {
     super.initState();
-    _checkAndSeedData();
-    // Announce the screen when it opens
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _announceRestaurantsScreen();
+
+    // Initialise streams ONCE here, not inside build()
+    _restaurantsStream = _dbService.getRestaurantsStream();
+
+    final user = FirebaseAuth.instance.currentUser;
+    _favoritesStream = _dbService.getFavorites(user?.uid ?? "");
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _checkAndSeedData();
+      if (!mounted) return;
+      final audio = Provider.of<AppAudioProvider>(context, listen: false);
+      final lp = Provider.of<LanguageProvider>(context, listen: false);
+      await Future.delayed(const Duration(milliseconds: 500));
+      await audio.initSpeech();
+      await _speakIntro(lp);
     });
+  }
+
+  @override
+  void dispose() {
+    _shouldListen = false;
+    super.dispose();
   }
 
   Future<void> _checkAndSeedData() async {
     try {
-      await _dbService.uploadMockData(RestaurantData.restaurants);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      await _dbService.seedRestaurantData();
     } catch (e) {
-      debugPrint("Error seeding data: $e");
+      debugPrint("Seed error: $e");
     }
   }
 
-  // FIXED: Added voice announcement for the screen
-  void _announceRestaurantsScreen() async {
-    final lp = Provider.of<LanguageProvider>(context, listen: false);
+  Future<void> _speakIntro(LanguageProvider lp) async {
+    if (!mounted) return;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    await audio.stop();
+
+    await audio.speak(
+      lp.isEnglish ? "Restaurants screen." : "شاشة المطاعم.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+
+    await Future.delayed(const Duration(milliseconds: 400));
+    await _speakRestaurantList(lp);
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    await audio.speak(
+      lp.isEnglish
+          ? "Say a restaurant name to open it. "
+          "Say add [name] to favorites to mark it. "
+          "Say sort by rating, sort by distance, or go back."
+          : "قل اسم المطعم لفتحه. قل أضف [اسم] إلى المفضلة. "
+          "قل رتب حسب التقييم، رتب حسب المسافة، أو ارجع.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+
+    if (mounted) {
+      _shouldListen = true;
+      _startListening(lp);
+    }
+  }
+
+  Future<void> _speakRestaurantList(LanguageProvider lp) async {
+    if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    await audio.stop(); // Clear any audio from the Home/Splash screen
+    if (_loadedRestaurants.isEmpty) {
+      await audio.speak(
+        lp.isEnglish ? "No restaurants available." : "لا توجد مطاعم متاحة.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+      );
+      return;
+    }
 
-    if (lp.isRTL) {
-      await audio.speak("قائمة المطاعم.", "ar-EG");
+    await audio.speak(
+      lp.isEnglish
+          ? "${_loadedRestaurants.length} restaurants available."
+          : "${_loadedRestaurants.length} مطاعم متاحة.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+
+    for (int i = 0; i < _loadedRestaurants.length; i++) {
+      if (!mounted) return;
+      final r = _loadedRestaurants[i];
       await Future.delayed(const Duration(milliseconds: 300));
-      await audio.speak("يمكنك الفرز حسب التقييم أو المسافة بالصوت.", "ar-EG");
-    } else {
-      await audio.speak("Restaurant list. You can sort by rating or distance using your voice.", "en-US");
+      if (lp.isEnglish) {
+        await audio.speak(
+          "Restaurant ${i + 1}: ${r.name}. "
+              "Rated ${r.rating} out of 5. "
+              "${r.distance} away. "
+              "${r.description}.",
+          "en-US",
+        );
+      } else {
+        await audio.speak("المطعم ${i + 1}:", "ar-SA");
+        await Future.delayed(const Duration(milliseconds: 150));
+        await audio.speak(r.name, "en-US");
+        await Future.delayed(const Duration(milliseconds: 150));
+        await audio.speak(
+          "التقييم ${r.rating} من 5. يبعد ${r.distance}. ${r.description}.",
+          "ar-SA",
+        );
+      }
     }
   }
 
-  void _handleVoiceFilter(AppAudioProvider audio, LanguageProvider lp) {
-    audio.toggleListening(lp.currentLanguage, (words) async {
-      String command = words.toLowerCase();
+  Map<String, dynamic>? _tryParseLocally(String text) {
+    final lower = text.toLowerCase().trim();
 
-      if (command.contains("rating") || command.contains("تقييم") || command.contains("الاعلى")) {
-        _applyFilter('rating');
-        await audio.speak(lp.isRTL ? "تم الترتيب حسب التقييم" : "Sorting by rating", lp.currentLanguage);
+    final bool isFavIntent =
+        (lower.contains('add') &&
+            (lower.contains('favorit') || lower.contains('favourit'))) ||
+            (lower.contains('أضف') && lower.contains('مفضلة')) ||
+            (lower.contains('إضافة') && lower.contains('مفضلة'));
+
+    if (isFavIntent) {
+      for (final r in _loadedRestaurants) {
+        if (lower.contains(r.name.toLowerCase())) {
+          return {'command': 'add_to_favorites', 'value': r.name};
+        }
       }
-      else if (command.contains("distance") || command.contains("مسافة") || command.contains("قريب")) {
-        _applyFilter('distance');
-        await audio.speak(lp.isRTL ? "تم الترتيب حسب الأقرب" : "Sorting by distance", lp.currentLanguage);
-      }
-      else if (command.contains("reset") || command.contains("اعادة") || command.contains("افتراضي")) {
-        _applyFilter('reset');
-        await audio.speak(lp.isRTL ? "تمت إعادة الضبط" : "Filters reset", lp.currentLanguage);
-      }
-    });
+      return {'command': 'add_to_favorites', 'value': ''};
+    }
+
+    if (lower.contains('go back') ||
+        lower == 'ارجع' ||
+        lower.contains('ارجع') ||
+        lower.contains('رجوع')) {
+      return {'command': 'go_back'};
+    }
+
+    return null;
   }
 
-  void _applyFilter(String criteria) {
-    setState(() {
-      _currentFilter = criteria;
-    });
+  void _startListening(LanguageProvider lp) async {
+    if (!_shouldListen || !mounted) return;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    if (audio.speech.isListening) return;
+
+    await audio.toggleListening(
+      lp.isEnglish ? "en" : "ar",
+          (text) async {
+        if (_isProcessing || !_shouldListen) return;
+        _isProcessing = true;
+
+        debugPrint("USER SAID (Restaurants): $text");
+
+        final local = _tryParseLocally(text);
+        final Map<String, dynamic> response;
+        if (local != null) {
+          debugPrint("LOCAL MATCH (Restaurants): $local");
+          response = local;
+        } else {
+          response = await AIService.sendMessage(text);
+        }
+
+        final command = (response['command'] ?? "unknown").toString();
+        debugPrint("FINAL COMMAND (Restaurants): $command");
+        await _handleCommand(command, response, lp);
+
+        _isProcessing = false;
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (_shouldListen && mounted) _startListening(lp);
+        });
+      },
+      onError: (_) {
+        if (!_shouldListen || !mounted || _isProcessing) return;
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
+        });
+      },
+    );
   }
+
+  Future<void> _handleCommand(
+      String command,
+      Map<String, dynamic> response,
+      LanguageProvider lp,
+      ) async {
+    if (!mounted) return;
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    switch (command) {
+      case "add_to_favorites":
+        final restaurantName = (response['value'] ?? "").toString().trim();
+
+        if (restaurantName.isEmpty) {
+          await audio.speak(
+            lp.isEnglish
+                ? "Which restaurant would you like to add to favorites? "
+                "Available: ${_loadedRestaurants.map((r) => r.name).join(', ')}."
+                : "أي مطعم تريد إضافته إلى المفضلة؟ "
+                "المتاحة: ${_loadedRestaurants.map((r) => r.name).join('، ')}.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+          break;
+        }
+
+        final matchFav = _loadedRestaurants
+            .where((r) =>
+            r.name.toLowerCase().contains(restaurantName.toLowerCase()))
+            .toList();
+
+        if (matchFav.isNotEmpty) {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final restaurant = matchFav.first;
+            final alreadyFav = _currentFavorites.any(
+                  (f) => f.name.toLowerCase() == restaurant.name.toLowerCase(),
+            );
+
+            if (alreadyFav) {
+              await audio.speak(
+                lp.isEnglish
+                    ? "${restaurant.name} is already in your favorites."
+                    : "${restaurant.name} موجود بالفعل في المفضلة.",
+                lp.isEnglish ? "en-US" : "ar-SA",
+              );
+            } else {
+              final favModel = FavoriteModel(
+                id: restaurant.id ?? restaurant.name,
+                name: restaurant.name,
+                image: restaurant.image,
+                cuisine: restaurant.description,
+                rating: restaurant.rating,
+                time: restaurant.distance,
+              );
+              await _dbService.toggleFavorite(user.uid, favModel, false);
+              await audio.speak(
+                lp.isEnglish
+                    ? "Added ${restaurant.name} to favorites."
+                    : "تمت إضافة ${restaurant.name} إلى المفضلة.",
+                lp.isEnglish ? "en-US" : "ar-SA",
+              );
+            }
+          }
+        } else {
+          await audio.speak(
+            lp.isEnglish
+                ? "Restaurant not found. Say a name from the list."
+                : "المطعم غير موجود. قل اسماً من القائمة.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+        }
+        break;
+
+      case "filter_by_rating":
+        setState(() => _currentFilter = 'rating');
+        await audio.speak(
+          lp.isEnglish
+              ? "Sorted by rating. Highest rated first."
+              : "تم الترتيب حسب التقييم.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        await _speakRestaurantList(lp);
+        break;
+
+      case "filter_by_distance":
+        setState(() => _currentFilter = 'distance');
+        await audio.speak(
+          lp.isEnglish ? "Sorted by distance. Nearest first." : "تم الترتيب حسب المسافة.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        await _speakRestaurantList(lp);
+        break;
+
+      case "reset_filter":
+        setState(() => _currentFilter = 'reset');
+        await audio.speak(
+          lp.isEnglish
+              ? "Filter cleared. Showing all restaurants."
+              : "تمت إعادة الضبط.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        await _speakRestaurantList(lp);
+        break;
+
+      case "read_commands":
+        await audio.speak(
+          lp.isEnglish
+              ? "Commands: say a restaurant name to open it. "
+              "Add [name] to favorites. "
+              "Sort by rating. Sort by distance. Reset. Go back."
+              : "الأوامر: قل اسم المطعم. أضف [اسم] إلى المفضلة. "
+              "رتب حسب التقييم. رتب حسب المسافة. إعادة الضبط. ارجع.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        break;
+
+      case "select_restaurant":
+        final restaurantName = (response['value'] ?? "").toString().trim();
+        if (restaurantName.isEmpty) {
+          await audio.speak(
+            lp.isEnglish ? "Which restaurant would you like?" : "أي مطعم تريد؟",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+          break;
+        }
+        final match = _loadedRestaurants
+            .where((r) =>
+            r.name.toLowerCase().contains(restaurantName.toLowerCase()))
+            .toList();
+        if (match.isNotEmpty && mounted) {
+          _shouldListen = false;
+          await audio.speak(
+            lp.isEnglish
+                ? "Opening ${match.first.name}."
+                : "جاري فتح ${match.first.name}.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => Menu(restaurant: match.first)),
+          ).then((_) {
+            if (!mounted) return;
+            _shouldListen = true;
+            _isProcessing = false;
+            Future.delayed(const Duration(milliseconds: 400),
+                    () {
+                  if (mounted) _speakIntro(lp);
+                });
+          });
+        } else {
+          await audio.speak(
+            lp.isEnglish
+                ? "Restaurant not found. Available: ${_loadedRestaurants.map((r) => r.name).join(', ')}."
+                : "المطعم غير موجود. المتاحة: ${_loadedRestaurants.map((r) => r.name).join('، ')}.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+        }
+        break;
+
+      case "prompt_restaurant_name":
+        await audio.speak(
+          lp.isEnglish
+              ? "Which restaurant? Available: ${_loadedRestaurants.map((r) => r.name).join(', ')}."
+              : "أي مطعم؟ المتاحة: ${_loadedRestaurants.map((r) => r.name).join('، ')}.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        break;
+
+      case "go_back":
+        _shouldListen = false;
+        await audio.speak(
+          lp.isEnglish ? "Going back." : "جاري الرجوع.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        if (mounted) Navigator.pop(context);
+        break;
+
+      default:
+        await audio.speak(
+          lp.isEnglish
+              ? "Say a restaurant name, add to favorites, sort by rating, "
+              "sort by distance, or go back."
+              : "قل اسم مطعم، أضف إلى المفضلة، رتب حسب التقييم، "
+              "رتب حسب المسافة، أو ارجع.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+    }
+  }
+
+  void _applyFilter(String criteria) => setState(() => _currentFilter = criteria);
 
   @override
   Widget build(BuildContext context) {
@@ -91,12 +413,22 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(lp.isRTL ? Icons.arrow_forward : Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
+          icon: Icon(
+              lp.isRTL ? Icons.arrow_forward : Icons.arrow_back,
+              color: Colors.black),
+          onPressed: () async {
+            _shouldListen = false;
+            await audio.speak(
+              lp.isEnglish ? "Going back." : "جاري الرجوع.",
+              lp.isEnglish ? "en-US" : "ar-SA",
+            );
+            if (mounted) Navigator.pop(context);
+          },
         ),
         title: Text(
           lp.getText('restaurants_title'),
-          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+              color: Colors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         actions: [
@@ -104,20 +436,34 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
             icon: const Icon(Icons.filter_alt, color: Colors.black),
             onSelected: _applyFilter,
             itemBuilder: (context) => [
-              PopupMenuItem(value: 'rating', child: Text(lp.getText('filter_rating'))),
-              PopupMenuItem(value: 'distance', child: Text(lp.getText('filter_distance'))),
-              PopupMenuItem(value: 'reset', child: Text(lp.getText('filter_reset'))),
+              PopupMenuItem(
+                  value: 'rating',
+                  child: Text(lp.getText('filter_rating'))),
+              PopupMenuItem(
+                  value: 'distance',
+                  child: Text(lp.getText('filter_distance'))),
+              PopupMenuItem(
+                  value: 'reset',
+                  child: Text(lp.getText('filter_reset'))),
             ],
           ),
         ],
       ),
-      // Updated FAB to handle listening state and color
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(top: 70),
         child: FloatingActionButton(
           backgroundColor: audio.isListening ? Colors.green : primaryRed,
-          onPressed: () => _handleVoiceFilter(audio, lp),
-          child: Icon(audio.isListening ? Icons.graphic_eq : Icons.mic, color: Colors.white),
+          onPressed: () {
+            if (!audio.speech.isListening && !_isProcessing) {
+              _shouldListen = true;
+              _startListening(
+                  Provider.of<LanguageProvider>(context, listen: false));
+            }
+          },
+          child: Icon(
+            audio.isListening ? Icons.graphic_eq : Icons.mic,
+            color: Colors.white,
+          ),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerTop,
@@ -128,45 +474,161 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           const SizedBox(height: 10),
           Expanded(
             child: StreamBuilder<List<Restaurant>>(
-              stream: _dbService.getRestaurantsStream(),
+              // ── FIX 1: Use the cached stream field, not a new call ──
+              stream: _restaurantsStream,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: primaryRed));
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  // ── FIX 2: Only show spinner on the very first load,
+                  //    not on every rebuild ──
+                  return const Center(
+                      child: CircularProgressIndicator(color: primaryRed));
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.wifi_off,
+                            size: 52, color: Colors.grey),
+                        const SizedBox(height: 12),
+                        Text(
+                          lp.isEnglish
+                              ? "Could not load restaurants."
+                              : "تعذّر تحميل المطاعم.",
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: () => setState(() {}),
+                          icon: const Icon(Icons.refresh),
+                          label: Text(lp.isEnglish
+                              ? "Retry"
+                              : "إعادة المحاولة"),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryRed),
+                        ),
+                      ],
+                    ),
+                  );
                 }
 
-                List<Restaurant> restaurants = snapshot.data ?? [];
+                final seen = <String>{};
+                final restaurants = (snapshot.data ?? [])
+                    .where((r) => seen.add(r.id ?? r.name))
+                    .toList();
 
-                // Sorting Logic
+                // Safe to assign here since StreamBuilder's builder is
+                // called in the build phase; no setState needed.
+                _loadedRestaurants = List.from(restaurants);
+
+                if (restaurants.isEmpty) {
+                  return Center(
+                    child: Text(
+                      lp.isEnglish
+                          ? "No restaurants found."
+                          : "لا توجد مطاعم.",
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  );
+                }
+
+                List<Restaurant> sorted = List.from(restaurants);
                 if (_currentFilter == 'rating') {
-                  restaurants.sort((a, b) {
-                    double ratingA = double.tryParse(a.rating) ?? 0.0;
-                    double ratingB = double.tryParse(b.rating) ?? 0.0;
-                    return ratingB.compareTo(ratingA);
-                  });
+                  sorted.sort((a, b) =>
+                      (double.tryParse(b.rating) ?? 0)
+                          .compareTo(double.tryParse(a.rating) ?? 0));
                 } else if (_currentFilter == 'distance') {
-                  restaurants.sort((a, b) {
-                    double distA = double.tryParse(a.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-                    double distB = double.tryParse(b.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-                    return distA.compareTo(distB);
+                  sorted.sort((a, b) {
+                    double dA = double.tryParse(
+                        a.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                        0;
+                    double dB = double.tryParse(
+                        b.distance.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                        0;
+                    return dA.compareTo(dB);
                   });
                 }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: restaurants.length,
-                  itemBuilder: (context, index) {
-                    var restaurant = restaurants[index];
-                    return RestaurantCard(
-                      name: restaurant.name,
-                      rating: restaurant.rating,
-                      distance: restaurant.distance,
-                      image: restaurant.image,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => Menu(restaurant: restaurant),
-                          ),
+                final User? user = FirebaseAuth.instance.currentUser;
+
+                // ── FIX 3: Single StreamBuilder for favorites OUTSIDE
+                //    the list, not one per card ──
+                return StreamBuilder<List<FavoriteModel>>(
+                  stream: _favoritesStream, // cached stream
+                  builder: (context, favSnapshot) {
+                    // ── FIX 4: Update _currentFavorites WITHOUT setState ──
+                    // StreamBuilder already triggers a rebuild when data
+                    // arrives, so we just read the value directly.
+                    final favs = favSnapshot.data ?? [];
+                    _currentFavorites = favs;
+
+                    return ListView.builder(
+                      padding:
+                      const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: sorted.length,
+                      itemBuilder: (context, index) {
+                        final restaurant = sorted[index];
+                        bool isFav =
+                        favs.any((f) => f.name == restaurant.name);
+
+                        return RestaurantCard(
+                          name: restaurant.name,
+                          rating: restaurant.rating,
+                          distance: restaurant.distance,
+                          image: restaurant.image,
+                          isFavorite: isFav,
+                          onFavoriteToggle: () async {
+                            if (user != null) {
+                              _dbService.toggleFavorite(
+                                user.uid,
+                                FavoriteModel(
+                                  id: restaurant.id ?? restaurant.name,
+                                  name: restaurant.name,
+                                  image: restaurant.image,
+                                  cuisine: restaurant.description,
+                                  rating: restaurant.rating,
+                                  time: restaurant.distance,
+                                ),
+                                isFav,
+                              );
+                              await audio.speak(
+                                isFav
+                                    ? (lp.isEnglish
+                                    ? "Removed ${restaurant.name} from favorites."
+                                    : "تم حذف ${restaurant.name} من المفضلة.")
+                                    : (lp.isEnglish
+                                    ? "Added ${restaurant.name} to favorites."
+                                    : "تمت إضافة ${restaurant.name} إلى المفضلة."),
+                                lp.isEnglish ? "en-US" : "ar-SA",
+                              );
+                            }
+                          },
+                          onTap: () async {
+                            _shouldListen = false;
+                            await audio.speak(
+                              lp.isEnglish
+                                  ? "Opening ${restaurant.name}. ${restaurant.description}."
+                                  : "جاري فتح ${restaurant.name}.",
+                              lp.isEnglish ? "en-US" : "ar-SA",
+                            );
+                            if (mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        Menu(restaurant: restaurant)),
+                              ).then((_) {
+                                if (!mounted) return;
+                                _shouldListen = true;
+                                _isProcessing = false;
+                                Future.delayed(
+                                    const Duration(milliseconds: 400), () {
+                                  if (mounted) _speakIntro(lp);
+                                });
+                              });
+                            }
+                          },
                         );
                       },
                     );
@@ -191,16 +653,21 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         ),
         child: Row(
           children: [
-            Icon(Icons.mic, color: audio.isListening ? Colors.green : Colors.teal),
+            Icon(
+              audio.isListening ? Icons.graphic_eq : Icons.mic,
+              color: audio.isListening ? Colors.green : Colors.teal,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                audio.isListening && audio.lastWords.isNotEmpty
-                    ? audio.lastWords
+                audio.isListening
+                    ? (audio.lastWords.isEmpty
+                    ? (lp.isEnglish ? "Listening..." : "أنا أسمعك...")
+                    : audio.lastWords)
                     : lp.getText('restaurants_voice_hint'),
                 style: const TextStyle(color: Colors.black54, fontSize: 13),
               ),
-            )
+            ),
           ],
         ),
       ),

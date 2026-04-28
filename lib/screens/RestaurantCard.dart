@@ -9,6 +9,8 @@ class RestaurantCard extends StatelessWidget {
   final String distance;
   final String image;
   final VoidCallback onTap;
+  final bool isFavorite;
+  final VoidCallback onFavoriteToggle;
 
   const RestaurantCard({
     super.key,
@@ -17,6 +19,8 @@ class RestaurantCard extends StatelessWidget {
     required this.distance,
     required this.image,
     required this.onTap,
+    required this.isFavorite,
+    required this.onFavoriteToggle,
   });
 
   Future<void> _announceRestaurant(BuildContext context) async {
@@ -26,14 +30,14 @@ class RestaurantCard extends StatelessWidget {
     await audio.stop();
 
     if (lp.isRTL) {
-      await audio.speak(name, "en-US");
-      await Future.delayed(const Duration(milliseconds: 300));
-      await audio.speak(
+      audio.speak(name, "en-US");
+      await Future.delayed(const Duration(milliseconds: 400));
+      audio.speak(
         "التقييم $rating. يبعد مسافة $distance.",
         "ar-EG",
       );
     } else {
-      await audio.speak(
+      audio.speak(
         "$name. Rating $rating. It is $distance away.",
         "en-US",
       );
@@ -52,84 +56,84 @@ class RestaurantCard extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-
-        // ✅ FIXED: Opens immediately
         onTap: () {
-          _announceRestaurant(context); // speech in background
-          onTap(); // navigate instantly
+          _announceRestaurant(context);
+          onTap();
         },
-
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(16)),
-              child: Image.network(
-                image,
-                height: 160,
-                width: double.infinity,
-                fit: BoxFit.cover,
-
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
+            // Using a Stack to place the heart button over the image
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  child: Image.network(
+                    image,
                     height: 160,
-                    color: Colors.grey[200],
-                    child: const Icon(
-                      Icons.broken_image,
-                      size: 50,
-                      color: Colors.grey,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        height: 160,
+                        color: Colors.grey[200],
+                        child: const Icon(
+                          Icons.broken_image,
+                          size: 50,
+                          color: Colors.grey,
+                        ),
+                      );
+                    },
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        height: 160,
+                        color: Colors.grey[100],
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            color: primaryRed,
+                            strokeWidth: 2,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                // The Heart Toggle Button
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.2), // Makes white icon visible on light images
+                      shape: BoxShape.circle,
                     ),
-                  );
-                },
-
-                loadingBuilder:
-                    (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-
-                  return Container(
-                    height: 160,
-                    color: Colors.grey[100],
-                    child: const Center(
-                      child: CircularProgressIndicator(
-                        color: primaryRed,
-                        strokeWidth: 2,
+                    child: IconButton(
+                      icon: Icon(
+                        isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: isFavorite ? Colors.red : Colors.white,
+                        size: 26,
                       ),
+                      onPressed: onFavoriteToggle,
                     ),
-                  );
-                },
-              ),
+                  ),
+                ),
+              ],
             ),
 
             Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
-                crossAxisAlignment:
-                CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment:
-                    MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow:
-                          TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight:
-                            FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const Icon(
-                        Icons.favorite_border,
-                        color: primaryRed,
-                        size: 22,
-                      ),
-                    ],
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
 
                   const SizedBox(height: 8),
@@ -145,20 +149,16 @@ class RestaurantCard extends StatelessWidget {
                       Text(
                         rating,
                         style: const TextStyle(
-                          fontWeight:
-                          FontWeight.bold,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       const SizedBox(width: 16),
-
                       Icon(
                         Icons.location_on,
                         size: 18,
                         color: Colors.grey[600],
                       ),
                       const SizedBox(width: 4),
-
                       Text(
                         distance,
                         style: TextStyle(
