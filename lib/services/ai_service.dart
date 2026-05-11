@@ -1,68 +1,54 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class AIService {
-  static const String rasaUrl =
-      "http://10.0.2.2:5005/webhooks/rest/webhook";
+  // ── Change this to match where bridge.py is running ──────────────────────
+  // Android emulator  → http://10.0.2.2:8080
+  // Real device       → http://192.168.x.x:8080  (your PC's WiFi IP)-
+  // iOS simulator     → http://localhost:8080
+  // Web               → http://localhost:8080
+  static const String _base = 'http://10.0.2.2:8080';
 
-  static Future<Map<String, dynamic>> sendMessage(String message) async {
+  static Future<Map<String, dynamic>> sendMessage(
+      String text, {
+        String sender = 'user1',
+      }) async {
     try {
-      final response = await http.post(
-        Uri.parse(rasaUrl),
-        body: jsonEncode({
-          "sender": "user",
-          "message": message,
-        }),
-        headers: {"Content-Type": "application/json"},
-      );
+      final res = await http
+          .post(
+        Uri.parse('$_base/ask'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'text': text, 'sender': sender}),
+      )
+          .timeout(const Duration(seconds: 30));
 
-      if (response.statusCode != 200) {
-        return {"text": null, "command": "error"};
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final replies = body['replies'] as List<dynamic>? ?? [];
+
+        if (replies.isNotEmpty) {
+          // Spread the full reply so extra fields like icon_type pass through
+          final reply = Map<String, dynamic>.from(replies[0] as Map);
+          debugPrint('FULL REPLY: $reply');        // ← add this
+          debugPrint('FULL BODY: $body');          // ← add this
+          return {
+            ...reply,
+            // Normalise: text-only replies like {"text":"sign_in"} become
+            // {"command":"sign_in"} so every screen reads response['command']
+            'command': body['intent'] ?? reply['command'] ?? reply['text'] ?? 'unknown', // ← body['intent'] first
+            'value':   reply['value']   ?? '',
+            'intent':  body['intent']   ?? 'unknown',
+            'lang':    body['lang']     ?? 'en',
+          };
+        }
       }
 
-      final List<dynamic> data = jsonDecode(response.body);
-
-      if (data.isEmpty) {
-        return {"text": null, "command": "unknown"};
-      }
-
-      final item = data[0] as Map<String, dynamic>;
-
-      // ─────────────────────────────────────────────────────────
-      // FIX 1 & 2 & 3:
-      // Rasa actions already return the exact command string
-      // (e.g. "sign_in", "open_signup", "next", "select_english").
-      // We were re-parsing with contains() which:
-      //   - broke on underscore vs space ("sign_in" ≠ "sign in")
-      //   - caused false matches ("sign_in" contains "en" → language_en!)
-      //
-      // Solution: treat the Rasa text response AS the command directly.
-      // Rasa is the NLU + intent mapper — trust its output.
-      // ─────────────────────────────────────────────────────────
-
-      // FIX 3: Handle json_message responses (used by action_provide_phone).
-      // When Rasa uses dispatcher.utter_message(json_message={...}),
-      // the REST channel returns it in data[0]["custom"], NOT data[0]["text"].
-      if (item.containsKey("custom")) {
-        final custom = Map<String, dynamic>.from(item["custom"] as Map);
-        print("AI CUSTOM RESPONSE: $custom");
-        return custom; // Already contains "command" and "value"
-      }
-
-      // FIX 1 + 2: Use Rasa's text response as the command directly.
-      // No more fragile contains() parsing.
-      final String command = (item["text"] ?? "").toString().trim();
-      print("AI COMMAND FROM RASA: $command");
-
-      if (command.isEmpty) {
-        return {"text": null, "command": "unknown"};
-      }
-
-      return {"text": command, "command": command};
-
-    } catch (e) {
-      print("AI ERROR: $e");
-      return {"text": null, "command": "error"};
+      debugPrint('AIService: bad status ${res.statusCode}');
+      return {'command': 'unknown', 'value': ''};
+    } on Exception catch (e) {
+      debugPrint('AIService error: $e');
+      return {'command': 'unknown', 'value': ''};
     }
   }
 }
