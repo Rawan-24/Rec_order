@@ -121,7 +121,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
     } else {
       // ── Arabic: split so English names are spoken in English ────────────
       await say("جاري تتبع طلبك.", "ar-SA");
-      await Future.delayed(const Duration(milliseconds: 200));
+
 
       await say("رقم الطلب", "ar-SA");
       await say(orderNumber, "en-US");
@@ -135,10 +135,10 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
             "الوقت المتوقع للوصول $estimatedMinutes دقيقة.",
         "ar-SA",
       );
-      await Future.delayed(const Duration(milliseconds: 200));
+
 
       await say("الحالة الحالية: $statusAr.", "ar-SA");
-      await Future.delayed(const Duration(milliseconds: 200));
+
 
       await say("المندوب هو", "ar-SA");
       await say(driverName, "en-US");
@@ -197,15 +197,12 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
         await _handleCommand(command, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
-      onError: (_) {
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
-        });
+      onError: (errorMsg) {
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }

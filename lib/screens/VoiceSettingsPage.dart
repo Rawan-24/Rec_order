@@ -18,9 +18,9 @@ class VoiceSettingsPage extends StatefulWidget {
 
 class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   // ── Settings state ────────────────────────────────────────────────────────
-  bool   _voiceCommands     = true;   // master mic on/off
-  bool   _voiceFeedback     = true;   // TTS spoken responses on/off
-  bool   _wakeWord          = true;   // continuous always-on listening on/off
+  bool   _voiceCommands     = true;
+  bool   _voiceFeedback     = true;
+  bool   _wakeWord          = true;
   bool   _autoListen        = false;
   bool   _voiceConfirmation = true;
   double _volume            = 80;
@@ -83,7 +83,6 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   // ── Listen loop ───────────────────────────────────────────────────────────
   void _startListening(LanguageProvider lp) async {
     if (!_shouldListen || !mounted) return;
-    // Respect the voice-commands master toggle — don't start mic if disabled
     if (!_voiceCommands) return;
 
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
@@ -117,12 +116,13 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         });
       },
       onError: (errorMsg) {
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing && _voiceCommands)
-            _startListening(lp);
-        });
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
+
+
+
     );
   }
 
@@ -130,57 +130,49 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
   Map<String, dynamic>? _tryParseLocally(String text) {
     final lower = text.toLowerCase().trim();
 
-    // Voice commands toggle
     if (lower.contains('turn on voice command') ||
         lower.contains('enable voice command') ||
         lower.contains('شغّل أوامر الصوت') ||
-        lower.contains('تشغيل أوامر')) {
+        lower.contains('تشغيل أوامر'))
       return {'command': 'voice_commands_on'};
-    }
+
     if (lower.contains('turn off voice command') ||
         lower.contains('disable voice command') ||
         lower.contains('أوقف أوامر الصوت') ||
-        lower.contains('إيقاف أوامر')) {
+        lower.contains('إيقاف أوامر'))
       return {'command': 'voice_commands_off'};
-    }
 
-    // Voice feedback toggle
     if (lower.contains('turn on voice feedback') ||
         lower.contains('enable voice feedback') ||
         lower.contains('turn on feedback') ||
         lower.contains('شغّل الردود الصوتية') ||
-        lower.contains('تشغيل الردود')) {
+        lower.contains('تشغيل الردود'))
       return {'command': 'voice_feedback_on'};
-    }
+
     if (lower.contains('turn off voice feedback') ||
         lower.contains('disable voice feedback') ||
         lower.contains('turn off feedback') ||
         lower.contains('أوقف الردود الصوتية') ||
-        lower.contains('إيقاف الردود')) {
+        lower.contains('إيقاف الردود'))
       return {'command': 'voice_feedback_off'};
-    }
 
-    // Wake word toggle
     if (lower.contains('turn on wake word') ||
         lower.contains('enable wake word') ||
-        lower.contains('شغّل كلمة التنبيه')) {
+        lower.contains('شغّل كلمة التنبيه'))
       return {'command': 'wake_word_on'};
-    }
+
     if (lower.contains('turn off wake word') ||
         lower.contains('disable wake word') ||
-        lower.contains('أوقف كلمة التنبيه')) {
+        lower.contains('أوقف كلمة التنبيه'))
       return {'command': 'wake_word_off'};
-    }
 
-    // Speed
     final speedMap = {
       '0.5': '0.5x', '0.75': '0.75x', '1.0': '1.0x Normal',
       '1.25': '1.25x', '1.5': '1.5x', '2.0': '2.0x', '2': '2.0x',
     };
     for (final entry in speedMap.entries) {
-      if (lower.contains(entry.key)) {
+      if (lower.contains(entry.key))
         return {'command': 'set_speed', 'value': entry.value};
-      }
     }
     if (lower.contains('normal speed') || lower.contains('سرعة عادية'))
       return {'command': 'set_speed', 'value': '1.0x Normal'};
@@ -195,12 +187,12 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     if (lower.contains('very fast') || lower.contains('سريع جداً'))
       return {'command': 'set_speed', 'value': '2.0x'};
 
-    // Volume
     if (lower.contains('volume up') ||
         lower.contains('louder') ||
         lower.contains('أعلى') ||
         lower.contains('ارفع الصوت'))
       return {'command': 'volume_up'};
+
     if (lower.contains('volume down') ||
         lower.contains('quieter') ||
         lower.contains('softer') ||
@@ -208,7 +200,6 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         lower.contains('خفض الصوت'))
       return {'command': 'volume_down'};
 
-    // Language
     if (lower.contains('english') || lower.contains('إنجليزي'))
       return {'command': 'language_en'};
     if (lower.contains('arabic') ||
@@ -216,7 +207,6 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         lower.contains('عربية'))
       return {'command': 'language_ar'};
 
-    // Go back
     if (lower.contains('go back') ||
         lower.contains('ارجع') ||
         lower.contains('رجوع'))
@@ -233,28 +223,25 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
 
     switch (command) {
 
-    // ── Voice Commands master toggle ───────────────────────────────────────
+    // ── SPOT 4A: voice_commands_on ────────────────────────────────────────
       case 'voice_commands_on':
         setState(() => _voiceCommands = true);
-        // Wire: actually re-enable the mic
+        audio.setAlwaysOn(true);   // ← ADDED
         _saveToCloud();
-        await _speakIfEnabled(
-          audio, lp,
-          en: "Voice commands turned on.",
-          ar: "تم تشغيل أوامر الصوت.",
-        );
-        // Restart mic now that it's re-enabled
+        await _speakIfEnabled(audio, lp,
+            en: "Voice commands turned on.",
+            ar: "تم تشغيل أوامر الصوت.");
         _shouldListen = true;
         _startListening(lp);
         break;
 
+    // ── SPOT 4B: voice_commands_off ───────────────────────────────────────
       case 'voice_commands_off':
         setState(() => _voiceCommands = false);
+        audio.setAlwaysOn(false);  // ← ADDED
         _shouldListen = false;
-        // Wire: actually stop the mic
         await audio.stop();
         _saveToCloud();
-        // Speak the confirmation before mic goes quiet
         await audio.speak(
           lp.isEnglish
               ? "Voice commands turned off. Tap the mic button to re-enable."
@@ -263,71 +250,59 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         );
         break;
 
-    // ── Voice Feedback toggle ──────────────────────────────────────────────
+    // ── Voice Feedback ────────────────────────────────────────────────────
       case 'voice_feedback_on':
         setState(() => _voiceFeedback = true);
-        // Wire: tell AudioProvider to allow TTS
         audio.setFeedbackEnabled(true);
         _saveToCloud();
-        await _speakIfEnabled(
-          audio, lp,
-          en: "Voice feedback turned on. I will now speak responses.",
-          ar: "تم تشغيل الردود الصوتية. سأقرأ الردود الآن.",
-        );
+        await _speakIfEnabled(audio, lp,
+            en: "Voice feedback turned on. I will now speak responses.",
+            ar: "تم تشغيل الردود الصوتية. سأقرأ الردود الآن.");
         break;
 
       case 'voice_feedback_off':
         setState(() => _voiceFeedback = false);
-        // Speak the last confirmation BEFORE disabling
         await audio.speak(
           lp.isEnglish
               ? "Voice feedback turned off. I will no longer speak."
               : "تم إيقاف الردود الصوتية.",
           lp.isEnglish ? "en-US" : "ar-SA",
         );
-        // Wire: tell AudioProvider to suppress TTS
         audio.setFeedbackEnabled(false);
         _saveToCloud();
         break;
 
-    // ── Wake Word toggle ───────────────────────────────────────────────────
+    // ── SPOT 3A: wake_word_on ─────────────────────────────────────────────
       case 'wake_word_on':
         setState(() => _wakeWord = true);
+        audio.setAlwaysOn(true);   // ← ADDED
         _saveToCloud();
-        await _speakIfEnabled(
-          audio, lp,
-          en: "Wake word enabled. The mic will listen continuously.",
-          ar: "تم تشغيل كلمة التنبيه. الميكروفون يستمع باستمرار.",
-        );
-        // Wire: restart the always-on loop
+        await _speakIfEnabled(audio, lp,
+            en: "Wake word enabled. The mic will listen continuously.",
+            ar: "تم تشغيل كلمة التنبيه. الميكروفون يستمع باستمرار.");
         if (_voiceCommands) {
           _shouldListen = true;
           _startListening(lp);
         }
         break;
 
+    // ── SPOT 3B: wake_word_off ────────────────────────────────────────────
       case 'wake_word_off':
         setState(() => _wakeWord = false);
-        // Wire: stop the continuous loop
+        audio.setAlwaysOn(false);  // ← ADDED
         _shouldListen = false;
         await audio.stop();
         _saveToCloud();
-        await _speakIfEnabled(
-          audio, lp,
-          en: "Wake word disabled. Tap the mic to speak.",
-          ar: "تم إيقاف كلمة التنبيه. اضغط الميكروفون للتحدث.",
-        );
+        await _speakIfEnabled(audio, lp,
+            en: "Wake word disabled. Tap the mic to speak.",
+            ar: "تم إيقاف كلمة التنبيه. اضغط الميكروفون للتحدث.");
         break;
 
-    // ── Speed ──────────────────────────────────────────────────────────────
+    // ── Speed ─────────────────────────────────────────────────────────────
       case 'set_speed':
-        final label = (rawText.isNotEmpty
-            ? rawText
-            : _selectedSpeed); // local parser already sets value
-        // Use response['value'] if coming from local parser
-        break; // handled by _applySpeed via local parser value below
+        break; // handled below after switch
 
-    // ── Volume ─────────────────────────────────────────────────────────────
+    // ── Volume ────────────────────────────────────────────────────────────
       case 'volume_up':
         await _applyVolumeDelta(10, lp, audio);
         break;
@@ -336,7 +311,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         await _applyVolumeDelta(-10, lp, audio);
         break;
 
-    // ── Language ───────────────────────────────────────────────────────────
+    // ── Language ──────────────────────────────────────────────────────────
       case 'language_en':
         await _handleLanguageChange("English (US)");
         break;
@@ -345,6 +320,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         await _handleLanguageChange("Arabic (EG)");
         break;
 
+    // ── Go back ───────────────────────────────────────────────────────────
       case 'go_back':
         _shouldListen = false;
         if (mounted) Navigator.pop(context);
@@ -355,20 +331,15 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         break;
 
       default:
-        await _speakIfEnabled(
-          audio, lp,
-          en: "Say turn on or off voice commands, voice feedback, or wake word. "
-              "Say speed, volume up or down, language, or go back.",
-          ar: "قل شغّل أو أوقف أوامر الصوت، الردود الصوتية، أو كلمة التنبيه. "
-              "قل سرعة أو صوت أو لغة أو ارجع.",
-        );
+        await _speakIfEnabled(audio, lp,
+            en: "Say turn on or off voice commands, voice feedback, or wake word. "
+                "Say speed, volume up or down, language, or go back.",
+            ar: "قل شغّل أو أوقف أوامر الصوت، الردود الصوتية، أو كلمة التنبيه. "
+                "قل سرعة أو صوت أو لغة أو ارجع.");
     }
 
-    // Handle 'set_speed' value from local parser
+    // Handle set_speed — re-parse to get value
     if (command == 'set_speed') {
-      // _tryParseLocally returns {'command':'set_speed','value':'1.5x'}
-      // but _handleCommand only receives command + rawText.
-      // Re-parse to get the value:
       final local = _tryParseLocally(rawText);
       final speedLabel = (local?['value'] ?? '1.0x Normal').toString();
       await _applySpeed(speedLabel, lp, audio);
@@ -391,17 +362,14 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
 
   Future<void> _applySpeed(
       String label, LanguageProvider lp, AppAudioProvider audio) async {
-    // Normalise: "1.5x" -> 1.5, "1.0x Normal" -> 1.0
     final numStr = label.split('x')[0];
     final rate   = double.tryParse(numStr) ?? 1.0;
     setState(() => _selectedSpeed = label);
     audio.setSpeechRate(rate);
     _saveToCloud();
-    await _speakIfEnabled(
-      audio, lp,
-      en: "Speed set to $label.",
-      ar: "تم ضبط السرعة على $label.",
-    );
+    await _speakIfEnabled(audio, lp,
+        en: "Speed set to $label.",
+        ar: "تم ضبط السرعة على $label.");
   }
 
   Future<void> _applyVolumeDelta(
@@ -410,14 +378,12 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     setState(() => _volume = newVol);
     audio.setVolume(newVol / 100);
     _saveToCloud();
-    await _speakIfEnabled(
-      audio, lp,
-      en: "Volume set to ${newVol.round()} percent.",
-      ar: "تم ضبط الصوت على ${newVol.round()} بالمئة.",
-    );
+    await _speakIfEnabled(audio, lp,
+        en: "Volume set to ${newVol.round()} percent.",
+        ar: "تم ضبط الصوت على ${newVol.round()} بالمئة.");
   }
 
-  // ── Load / save ───────────────────────────────────────────────────────────
+  // ── Load / Save ───────────────────────────────────────────────────────────
   Future<void> _loadSettingsFromServer() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -437,6 +403,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     }
   }
 
+  // ── SPOT 5: _syncProviders — applied on page load from Firebase ───────────
   void _syncProviders() {
     final lp    = Provider.of<LanguageProvider>(context, listen: false);
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
@@ -447,7 +414,8 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     final rate = double.tryParse(_selectedSpeed.split('x')[0]) ?? 1.0;
     audio.setSpeechRate(rate);
     audio.setVolume(_volume / 100);
-    audio.setFeedbackEnabled(_voiceFeedback);   // ← sync feedback on load
+    audio.setFeedbackEnabled(_voiceFeedback);
+    audio.setAlwaysOn(_voiceCommands && _wakeWord); // ← ADDED
   }
 
   Future<void> _handleLanguageChange(String displayName) async {
@@ -456,11 +424,9 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     setState(() => _selectedLanguage = displayName);
     final code = displayName.contains("Arabic") ? 'ar' : 'en';
     await lp.changeLanguage(code);
-    await _speakIfEnabled(
-      audio, lp,
-      en: "Language changed to English.",
-      ar: "تم تغيير اللغة إلى العربية.",
-    );
+    await _speakIfEnabled(audio, lp,
+        en: "Language changed to English.",
+        ar: "تم تغيير اللغة إلى العربية.");
     _saveToCloud();
   }
 
@@ -529,7 +495,6 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
                       _voiceFeedback,
                           (v) {
                         setState(() => _voiceFeedback = v);
-                        // Wire: enable/disable TTS immediately
                         audio.setFeedbackEnabled(v);
                         if (v) {
                           audio.speak(
@@ -543,6 +508,8 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
                       },
                       Icons.volume_up_outlined,
                     ),
+
+                    // ── SPOT 1: Wake word toggle ──────────────────────────
                     _buildToggleTile(
                       lp.getText('wake_word_title'),
                       lp.getText('wake_word_sub'),
@@ -550,7 +517,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
                           (v) {
                         setState(() => _wakeWord = v);
                         if (v) {
-                          // Wire: restart always-on listen loop
+                          audio.setAlwaysOn(true);   // ← ADDED
                           _shouldListen = true;
                           _startListening(lp);
                           if (_voiceFeedback) {
@@ -562,7 +529,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
                             );
                           }
                         } else {
-                          // Wire: stop the always-on loop
+                          audio.setAlwaysOn(false);  // ← ADDED
                           _shouldListen = false;
                           audio.stop();
                           if (_voiceFeedback) {
@@ -603,7 +570,8 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         onPressed: () {
           if (!audio.speech.isListening && !_isProcessing) {
             _shouldListen  = true;
-            _voiceCommands = true; // re-enable if they tapped manually
+            _voiceCommands = true;
+            audio.setAlwaysOn(true); // ← ADDED: re-enable on manual tap
             _startListening(
                 Provider.of<LanguageProvider>(context, listen: false));
           }
@@ -612,6 +580,76 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           audio.isListening ? Icons.graphic_eq : Icons.mic,
           color: Colors.white,
         ),
+      ),
+    );
+  }
+
+  // ── SPOT 2: Main voice toggle switch ──────────────────────────────────────
+  Widget _buildMainVoiceToggle(LanguageProvider lp) {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.05), blurRadius: 10)
+          ]),
+      child: Row(
+        children: [
+          CircleAvatar(
+              backgroundColor: primaryRed.withOpacity(0.1),
+              child: Icon(Icons.mic, color: primaryRed)),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(lp.getText('voice_commands_main'),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 17)),
+                  Text(
+                    _voiceCommands
+                        ? lp.getText('voice_status_active')
+                        : (lp.isEnglish ? "Disabled" : "معطّل"),
+                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+                ]),
+          ),
+          Switch(
+            value: _voiceCommands,
+            activeColor: primaryRed,
+            onChanged: (v) {
+              setState(() => _voiceCommands = v);
+              if (v) {
+                audio.setAlwaysOn(true);   // ← ADDED
+                _shouldListen = true;
+                _startListening(
+                    Provider.of<LanguageProvider>(context, listen: false));
+                if (_voiceFeedback) {
+                  audio.speak(
+                    lp.isEnglish
+                        ? "Voice commands enabled."
+                        : "تم تشغيل أوامر الصوت.",
+                    lp.isEnglish ? "en-US" : "ar-SA",
+                  );
+                }
+              } else {
+                audio.setAlwaysOn(false);  // ← ADDED
+                _shouldListen = false;
+                audio.stop();
+                audio.speak(
+                  lp.isEnglish
+                      ? "Voice commands disabled."
+                      : "تم إيقاف أوامر الصوت.",
+                  lp.isEnglish ? "en-US" : "ar-SA",
+                );
+              }
+              _saveToCloud();
+            },
+          ),
+        ],
       ),
     );
   }
@@ -671,75 +709,6 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     );
   }
 
-  Widget _buildMainVoiceToggle(LanguageProvider lp) {
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withOpacity(0.05), blurRadius: 10)
-          ]),
-      child: Row(
-        children: [
-          CircleAvatar(
-              backgroundColor: primaryRed.withOpacity(0.1),
-              child: Icon(Icons.mic, color: primaryRed)),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(lp.getText('voice_commands_main'),
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 17)),
-                  Text(
-                    _voiceCommands
-                        ? lp.getText('voice_status_active')
-                        : (lp.isEnglish ? "Disabled" : "معطّل"),
-                    style: const TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
-                ]),
-          ),
-          Switch(
-            value: _voiceCommands,
-            activeColor: primaryRed,
-            onChanged: (v) {
-              setState(() => _voiceCommands = v);
-              if (v) {
-                // Re-enable mic
-                _shouldListen = true;
-                _startListening(
-                    Provider.of<LanguageProvider>(context, listen: false));
-                if (_voiceFeedback) {
-                  audio.speak(
-                    lp.isEnglish
-                        ? "Voice commands enabled."
-                        : "تم تشغيل أوامر الصوت.",
-                    lp.isEnglish ? "en-US" : "ar-SA",
-                  );
-                }
-              } else {
-                // Disable mic
-                _shouldListen = false;
-                audio.stop();
-                audio.speak(
-                  lp.isEnglish
-                      ? "Voice commands disabled."
-                      : "تم إيقاف أوامر الصوت.",
-                  lp.isEnglish ? "en-US" : "ar-SA",
-                );
-              }
-              _saveToCloud();
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSettingsGroup(List<Widget> children) {
     return Container(
       decoration: BoxDecoration(
@@ -758,10 +727,9 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     return ListTile(
       leading: Icon(icon, color: Colors.black54),
       title: Text(title,
-          style: const TextStyle(
-              fontSize: 15, fontWeight: FontWeight.w500)),
-      subtitle: Text(sub,
-          style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+      subtitle:
+      Text(sub, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       trailing: Switch(
         value: val,
         onChanged: _voiceCommands ? onChanged : null,
@@ -777,8 +745,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15)),
+          color: Colors.white, borderRadius: BorderRadius.circular(15)),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -804,8 +771,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 20),
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15)),
+          color: Colors.white, borderRadius: BorderRadius.circular(15)),
       child: Column(
         children: [
           Slider(
@@ -829,8 +795,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
                       style: const TextStyle(color: Colors.grey)),
                   Text("${_volume.round()}%",
                       style: TextStyle(
-                          color: primaryRed,
-                          fontWeight: FontWeight.bold)),
+                          color: primaryRed, fontWeight: FontWeight.bold)),
                   Text(lp.getText('vol_loud'),
                       style: const TextStyle(color: Colors.grey)),
                 ]),
@@ -844,8 +809,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     final langs = ["English (US)", "Arabic (EG)"];
     return Container(
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15)),
+          color: Colors.white, borderRadius: BorderRadius.circular(15)),
       child: Column(
         children: langs
             .map((l) => RadioListTile(
@@ -869,8 +833,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         Icon(icon, size: 18, color: Colors.black54),
         const SizedBox(width: 8),
         Text(title,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
       ]),
     );
   }

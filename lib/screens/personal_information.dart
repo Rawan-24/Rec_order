@@ -223,11 +223,10 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
           if (_shouldListen && mounted) _startListening(lp);
         });
       },
-      onError: (_) {
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
-        });
+      onError: (errorMsg) {
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }

@@ -38,11 +38,7 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
     // Always reset to page 0 so tutorial always starts from the beginning
     currentPage = 0;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (!mounted) return;
-      _runIntro();
-    });
+
   }
 
   // ─────────────────────────────────────────
@@ -146,17 +142,13 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
 
         _isProcessing = false;
 
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening();
-        });
+
       },
       // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
-        debugPrint("STT error in Onboarding: $errorMsg — scheduling retry");
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) _startListening();
-        });
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
 

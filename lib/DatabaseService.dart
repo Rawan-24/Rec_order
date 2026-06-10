@@ -507,7 +507,61 @@ class DatabaseService {
       debugPrint("Error adding payment method: $e");
     }
   }
+  Future<void> seedMenuItems() async {
+    final restaurants = RestaurantData.restaurants;
+    debugPrint("🌱 seedMenuItems called — ${restaurants.length} restaurants");
 
+    for (final restaurant in restaurants) {
+      debugPrint("🔍 Searching for: '${restaurant.name}'");
+
+      final query = await FirebaseFirestore.instance
+          .collection('restaurants')
+          .where('name', isEqualTo: restaurant.name)
+          .get();
+
+      debugPrint("📦 Found ${query.docs.length} docs for '${restaurant.name}'");
+
+      if (query.docs.isEmpty) {
+        debugPrint("❌ Restaurant not found: '${restaurant.name}' — skipping");
+        continue;
+      }
+
+      final restaurantId = query.docs.first.id;
+      debugPrint("✅ Restaurant ID: $restaurantId");
+
+      final menuRef = FirebaseFirestore.instance
+          .collection('restaurants')
+          .doc(restaurantId)
+          .collection('menu');
+
+      final existingMenu = await menuRef.limit(1).get();
+      debugPrint("🍽️ Existing menu items: ${existingMenu.docs.length}");
+
+      if (existingMenu.docs.isNotEmpty) {
+        debugPrint("⏭️ Menu already seeded for ${restaurant.name} — skipping");
+        continue;
+      }
+
+      debugPrint("➕ Inserting ${restaurant.menu.length} items for ${restaurant.name}");
+
+      for (final item in restaurant.menu) {
+        debugPrint("   → Adding: ${item.name}");
+        await FirebaseFirestore.instance
+            .collection('restaurants')
+            .doc(restaurantId)
+            .collection('menu')
+            .add({
+          'name': item.name,
+          'description': item.description,
+          'price': item.price,
+          'category': item.category,
+          'image': item.image,
+          'availableAddOns': item.availableAddOns,
+        });
+      }
+      debugPrint("✅ Seeded menu for ${restaurant.name}");
+    }
+  }
   // ── NOTIFICATION SETTINGS ─────────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getNotificationSettings(String uid) async {

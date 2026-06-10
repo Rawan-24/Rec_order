@@ -89,6 +89,9 @@ class _HomeContentState extends State<HomeContent> {
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
       final lp = Provider.of<LanguageProvider>(context, listen: false);
 
+
+
+
       await Future.delayed(const Duration(milliseconds: 800));
       await audio.initSpeech();
       await _speakIntro(lp);
@@ -164,11 +167,9 @@ class _HomeContentState extends State<HomeContent> {
 
       // ── onError: retry on silence / no-match ────────────────
       onError: (errorMsg) {
-        debugPrint("STT error on Home: $errorMsg — scheduling retry");
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
-        });
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }
@@ -198,7 +199,8 @@ class _HomeContentState extends State<HomeContent> {
         break;
 
     // ── Track order ────────────────────────────────────────
-      case "open_track":
+        case "track_active_order":
+        case "open_track":
         _shouldListen = false;
         await audio.speak(
           lp.isEnglish ? "Checking your order." : "جاري تتبع طلبك.",

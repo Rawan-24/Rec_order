@@ -283,10 +283,10 @@ class _MenuState extends State<Menu> {
           if (_shouldListen && mounted) _startListening();
         });
       },
-      onError: (_) {
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) _startListening();
-        });
+      onError: (errorMsg) {
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }

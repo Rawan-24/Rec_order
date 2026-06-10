@@ -47,7 +47,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
       if (!mounted) return;
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
       final lp = Provider.of<LanguageProvider>(context, listen: false);
-      await Future.delayed(const Duration(milliseconds: 500));
+
       await audio.initSpeech();
       await _speakIntro(lp);
     });
@@ -79,9 +79,9 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
       lp.isEnglish ? "en-US" : "ar-SA",
     );
 
-    await Future.delayed(const Duration(milliseconds: 400));
+
     await _speakRestaurantList(lp);
-    await Future.delayed(const Duration(milliseconds: 400));
+
 
     await audio.speak(
       lp.isEnglish
@@ -121,7 +121,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
     for (int i = 0; i < _loadedRestaurants.length; i++) {
       if (!mounted) return;
       final r = _loadedRestaurants[i];
-      await Future.delayed(const Duration(milliseconds: 300));
+
       if (lp.isEnglish) {
         await audio.speak(
           "Restaurant ${i + 1}: ${r.name}. "
@@ -132,9 +132,9 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         );
       } else {
         await audio.speak("المطعم ${i + 1}:", "ar-SA");
-        await Future.delayed(const Duration(milliseconds: 150));
+
         await audio.speak(r.name, "en-US");
-        await Future.delayed(const Duration(milliseconds: 150));
+
         await audio.speak(
           "التقييم ${r.rating} من 5. يبعد ${r.distance}. ${r.description}.",
           "ar-SA",
@@ -198,15 +198,12 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         await _handleCommand(command, response, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
-      onError: (_) {
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) _startListening(lp);
-        });
+      onError: (errorMsg) {
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }
@@ -352,8 +349,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
             if (!mounted) return;
             _shouldListen = true;
             _isProcessing = false;
-            Future.delayed(const Duration(milliseconds: 400),
-                    () { if (mounted) _speakIntro(lp); });
+
           });
         } else {
           await audio.speak(
@@ -618,10 +614,7 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
                                 if (!mounted) return;
                                 _shouldListen = true;
                                 _isProcessing = false;
-                                Future.delayed(
-                                    const Duration(milliseconds: 400), () {
-                                  if (mounted) _speakIntro(lp);
-                                });
+
                               });
                             }
                           },

@@ -27,7 +27,7 @@ class _RecOrderSplashScreenState extends State<RecOrderSplashScreen>
   }
 
   Future<void> checkLogin() async {
-    await Future.delayed(const Duration(seconds: 3)); // splash duration
+
 
     final prefs = await SharedPreferences.getInstance();
     bool staySignedIn = prefs.getBool("staySignedIn") ?? false;

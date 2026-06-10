@@ -23,14 +23,12 @@ class TtsService {
     await _tts.setVolume(_volume);
     await _tts.setPitch(_pitch);
 
-    _initialized = true;
-
-    // Connect FlutterTTS completion event
+    // ✅ Wire once here, not in every speak() call
     _tts.setCompletionHandler(() {
-      if (_onComplete != null) {
-        _onComplete!();
-      }
+      _onComplete?.call();
     });
+
+    _initialized = true;
   }
 
   // ─────────────────────────────

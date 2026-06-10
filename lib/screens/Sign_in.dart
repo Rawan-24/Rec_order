@@ -40,7 +40,7 @@ class _SignInScreenState extends State<SignInScreen> {
 
       audio.setPhoneController(phoneController);
 
-      await Future.delayed(const Duration(milliseconds: 1500));
+
       await audio.initSpeech();
       _speakIntro(lp);
     });
@@ -166,21 +166,13 @@ class _SignInScreenState extends State<SignInScreen> {
 
         _isProcessing = false;
 
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) {
-            _startListening(lp);
-          }
-        });
+
       },
       // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
-        debugPrint("STT error in SignIn: $errorMsg — scheduling retry");
-        if (!_shouldListen || !mounted || _isProcessing) return;
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_shouldListen && mounted && !_isProcessing) {
-            _startListening(lp);
-          }
-        });
+        // AudioProvider handles error_no_match automatically.
+        // Only restart here for genuine errors.
+        debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }
