@@ -90,16 +90,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _isProcessing = true;
 
         debugPrint("USER SAID (Payment): $text");
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "payment");
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
         debugPrint("AI COMMAND (Payment): $command");
 
         await _handleCommand(command, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -143,7 +141,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
       case "cancel_order":
       case "go_back":
         _shouldListen = false;
+
         await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.pop(context);
         break;
 
@@ -217,6 +217,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       // FIX #4 — stop audio before navigating so TrackOrder isn't fighting
       // this screen's TTS. TrackOrderScreen will speak its own intro.
+      await audio.speak(
+        lp.isEnglish
+            ? "Order placed successfully! Tracking your order."
+            : "تم تأكيد طلبك بنجاح! جاري تتبع طلبك.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+      );
       await audio.stop();
 
       if (mounted) {

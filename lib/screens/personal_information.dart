@@ -210,18 +210,16 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
           debugPrint("LOCAL MATCH (PersonalInfo): $local");
           response = local;
         } else {
-          response = await AIService.sendMessage(text);
+          response = await AIService.sendMessage(text, screen: "personal_info");
         }
 
-        final command = (response['command'] ?? "unknown").toString();
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
         debugPrint("AI COMMAND (PersonalInfo): $command");
 
         await _handleCommand(command, response, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -315,8 +313,19 @@ class _PersonalInformationPageState extends State<PersonalInformationPage> {
         await _updateProfile(lp);
         break;
 
+      case "read_commands":
+        await audio.speak(
+          lp.isEnglish
+              ? "You can say: my name is, my phone is, read my name, read my phone, clear name, clear phone, save, or go back."
+              : "يمكنك قول: اسمي، هاتفي، اقرأ اسمي، اقرأ رقمي، امسح الاسم، امسح الرقم، احفظ، أو ارجع.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        break;
+
       case "go_back":
         _shouldListen = false;
+        await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.pop(context);
         break;
 

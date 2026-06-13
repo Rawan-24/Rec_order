@@ -72,7 +72,7 @@ class _CartScreenState extends State<CartScreen> {
         _isProcessing = true;
 
         debugPrint("USER SAID (Cart): $text");
-        final response = await AIService.sendMessage(text);
+        final response = await AIService.sendMessage(text, screen: "cart");
         final command = (response['command'] ?? "unknown").toString();
         debugPrint("AI COMMAND (Cart): $command");
 
@@ -80,9 +80,7 @@ class _CartScreenState extends State<CartScreen> {
         await _handleCommand(command, response, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -156,12 +154,11 @@ class _CartScreenState extends State<CartScreen> {
           );
           break;
         }
-        // Fuzzy match: remove first cart item whose name contains the spoken value
-        final match = cart.items.firstWhere(
+        final CartItem? match = cart.items.cast<CartItem?>().firstWhere(
               (i) =>
-          i.name.toLowerCase().contains(itemName) ||
+          i!.name.toLowerCase().contains(itemName) ||
               itemName.contains(i.name.toLowerCase()),
-          orElse: () => null as dynamic,
+          orElse: () => null,
         );
         if (match != null) {
           cart.removeItem(match.id);
@@ -180,10 +177,87 @@ class _CartScreenState extends State<CartScreen> {
           );
         }
         break;
+      case "increase_quantity":
+        final String incName =
+        (response['value'] ?? '').toString().trim().toLowerCase();
+        if (incName.isEmpty) {
+          await audio.speak(
+            lp.isEnglish ? "Which item to increase?" : "أي عنصر تريد زيادته؟",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+          break;
+        }
+        final incMatch = cart.items.cast<CartItem?>().firstWhere(
+              (i) =>
+          i!.name.toLowerCase().contains(incName) ||
+              incName.contains(i.name.toLowerCase()),
+          orElse: () => null,
+        );
+        if (incMatch != null) {
+          cart.updateQuantity(incMatch.id, incMatch.quantity + 1);
+          await audio.speak(
+            lp.isEnglish
+                ? "${incMatch.name} quantity increased."
+                : "تمت زيادة كمية ${incMatch.name}.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+        } else {
+          await audio.speak(
+            lp.isEnglish
+                ? "I could not find $incName in your cart."
+                : "لم أجد هذا العنصر في سلتك.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+        }
+        break;
 
+      case "decrease_quantity":
+        final String decName =
+        (response['value'] ?? '').toString().trim().toLowerCase();
+        if (decName.isEmpty) {
+          await audio.speak(
+            lp.isEnglish ? "Which item to decrease?" : "أي عنصر تريد تقليله؟",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+          break;
+        }
+        final decMatch = cart.items.cast<CartItem?>().firstWhere(
+              (i) =>
+          i!.name.toLowerCase().contains(decName) ||
+              decName.contains(i.name.toLowerCase()),
+          orElse: () => null,
+        );
+        if (decMatch != null) {
+          if (decMatch.quantity > 1) {
+            cart.updateQuantity(decMatch.id, decMatch.quantity - 1);
+            await audio.speak(
+              lp.isEnglish
+                  ? "${decMatch.name} quantity decreased."
+                  : "تم تقليل كمية ${decMatch.name}.",
+              lp.isEnglish ? "en-US" : "ar-SA",
+            );
+          } else {
+            await audio.speak(
+              lp.isEnglish
+                  ? "${decMatch.name} is already at 1. Say delete to remove it."
+                  : "الكمية بالفعل 1. قل احذف لإزالته.",
+              lp.isEnglish ? "en-US" : "ar-SA",
+            );
+          }
+        } else {
+          await audio.speak(
+            lp.isEnglish
+                ? "I could not find $decName in your cart."
+                : "لم أجد هذا العنصر في سلتك.",
+            lp.isEnglish ? "en-US" : "ar-SA",
+          );
+        }
+        break;
     // ── FIX 2: Go back ────────────────────────────────────────────────────
       case "go_back":
         _shouldListen = false;
+        await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
 
         if (mounted) Navigator.pop(context);
         break;

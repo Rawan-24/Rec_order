@@ -233,7 +233,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         if (local != null) {
           response = local;
         } else {
-          response = await AIService.sendMessage(text);
+          response = await AIService.sendMessage(text, screen: "notifications");
         }
 
         final command = (response['command'] ?? "unknown").toString();
@@ -242,9 +242,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         await _handleCommand(command, text, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -310,15 +308,20 @@ class _NotificationsPageState extends State<NotificationsPage> {
     switch (command) {
       case 'go_back':
         _shouldListen = false;
+        await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.pop(context);
         return;
 
       case 'enable_all':
+      case 'enable_all_notifications':    // ← add this
+
         await _applyToggle('all', true);
         await say("All notifications enabled.", "تم تفعيل جميع التنبيهات.");
         return;
 
       case 'disable_all':
+      case 'disable_all_notifications':
         await _applyToggle('all', false);
         await say("All notifications disabled.", "تم تعطيل جميع التنبيهات.");
         return;

@@ -34,11 +34,16 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
   @override
   void initState() {
     super.initState();
-
-    // Always reset to page 0 so tutorial always starts from the beginning
     currentPage = 0;
 
-
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final audio = Provider.of<AppAudioProvider>(context, listen: false);
+      await audio.stop();
+      await Future.delayed(const Duration(milliseconds: 500)); // ✅ add this
+      await audio.initSpeech();
+      await _runIntro();
+    });
   }
 
   // ─────────────────────────────────────────
@@ -121,9 +126,9 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         setState(() => isListening = false);
         print("USER SAID: $text");
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
-
+        final response = await AIService.sendMessage(text, screen: "tutorial");
+        // ✅ Correct — always read 'text' first
+        final command = (response['text'] ?? response['command'] ?? "unknown").toString();
         print("AI COMMAND: $command");
 
         if (command == "next") {
@@ -131,19 +136,19 @@ class _VoiceOnboardingScreenState extends State<VoiceOnboardingScreen> {
         } else if (command == "skip") {
           await _handleSkip();
         } else {
-          // Unrecognised — re-prompt
-          final audio2 =
-          Provider.of<AppAudioProvider>(context, listen: false);
-          final reprompt = lp.isEnglish
-              ? "Say continue or skip."
-              : "قل اكمل أو تخطى.";
+          final audio2 = Provider.of<AppAudioProvider>(context, listen: false);
+          final reprompt = lp.isEnglish ? "Say continue or skip." : "قل اكمل أو تخطى.";
           await audio2.speak(reprompt, lp.currentLanguage);
-        }
 
+          // ✅ Restart mic after re-prompt
+          _isProcessing = false;
+          if (mounted && _shouldListen) _startListening();
+          return;
+        }
         _isProcessing = false;
 
-
-      },
+          },
+      // ── onError: retry on silence / no-match ──────────────────
       // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.

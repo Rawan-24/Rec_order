@@ -190,16 +190,16 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           debugPrint("LOCAL MATCH (Restaurants): $local");
           response = local;
         } else {
-          response = await AIService.sendMessage(text);
+          response = await AIService.sendMessage(text, screen: "restaurants");
         }
 
-        final command = (response['command'] ?? "unknown").toString();
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
         debugPrint("FINAL COMMAND (Restaurants): $command");
         await _handleCommand(command, response, lp);
 
         _isProcessing = false;
 
-      },
+          },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
         // Only restart here for genuine errors.
@@ -376,6 +376,8 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           lp.isEnglish ? "Going back." : "جاري الرجوع.",
           lp.isEnglish ? "en-US" : "ar-SA",
         );
+        await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.pop(context);
         break;
 

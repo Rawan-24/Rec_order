@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../DatabaseService.dart';
+import 'AudioProvider.dart';
 
 class LanguageProvider with ChangeNotifier {
 
@@ -643,18 +644,21 @@ Future<void> _updateFirestore(String lang) async {
   }
 
   // --- CHANGING LOGIC ---
-  Future<void> changeLanguage(String langCode) async {
+  Future<void> changeLanguage(String langCode, {AppAudioProvider? audio}) async {
     if (_currentLanguage == langCode) return;
     _currentLanguage = langCode;
 
-    // 1. Save locally
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language_code', langCode);
 
-    // 2. Save to Firestore (via DatabaseService)
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      await DatabaseService().updateUserLanguage( langCode);
+      await DatabaseService().updateUserLanguage(langCode);
+    }
+
+    // ✅ Restart mic with new locale
+    if (audio != null) {
+      await audio.onLanguageChanged(langCode);
     }
 
     notifyListeners();

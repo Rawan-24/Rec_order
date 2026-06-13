@@ -151,7 +151,7 @@ class _HomeContentState extends State<HomeContent> {
 
         debugPrint("USER SAID: $text");
 
-        final response = await AIService.sendMessage(text);
+        final response = await AIService.sendMessage(text, screen: "home");
         final command = (response['command'] ?? "unknown").toString();
 
         debugPrint("AI COMMAND: $command");
@@ -160,9 +160,7 @@ class _HomeContentState extends State<HomeContent> {
 
         _isProcessing = false;
 
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
 
       // ── onError: retry on silence / no-match ────────────────
@@ -231,6 +229,8 @@ class _HomeContentState extends State<HomeContent> {
         break;
 
     // ── Open history ───────────────────────────────────────
+      case "open_active_orders":
+      case "open_past_orders":
       case "open_history":
         _shouldListen = false;
         await audio.speak(

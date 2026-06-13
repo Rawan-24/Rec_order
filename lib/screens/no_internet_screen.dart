@@ -61,8 +61,8 @@ class _NoInternetScreenState extends State<NoInternetScreen> {
         if (_isProcessing || !_shouldListen) return;
         _isProcessing = true;
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "no_internet");
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
 
         if (command == "retry_connection") {
           await audio.speak(
@@ -78,9 +78,7 @@ class _NoInternetScreenState extends State<NoInternetScreen> {
         }
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -89,6 +87,7 @@ class _NoInternetScreenState extends State<NoInternetScreen> {
       },
     );
   }
+
 
   void _triggerRetry() {
     debugPrint("Retrying connection...");

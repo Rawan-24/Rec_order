@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:grad_project/DatabaseService.dart';
 import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:grad_project/screens/Home.dart';
 import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/providers/AudioProvider.dart';
@@ -181,7 +182,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
   void _startListening(LanguageProvider lp) async {
     if (!_shouldListen || !mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    if (audio.speech.isListening) return;
+
 
     await audio.toggleListening(
       lp.isEnglish ? "en" : "ar",
@@ -190,15 +191,15 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
         _isProcessing = true;
 
         debugPrint("USER SAID (Track): $text");
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "track_order");
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
         debugPrint("AI COMMAND (Track): $command");
 
         await _handleCommand(command, lp);
 
         _isProcessing = false;
 
-      },
+          },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
         // Only restart here for genuine errors.
@@ -214,8 +215,33 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
       case "go_back":
         _shouldListen = false;
         await tts.stop();
-        // Do NOT call audio.stop() — lets the previous screen restart its mic
-        if (mounted) Navigator.pop(context);
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+                (route) => false,
+          );
+        }
+        break;
+
+      case "read_order_total":
+      case "track_active_order":
+        await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+        await tts.speak(
+          lp.isEnglish
+              ? "Your order status is $_lastStatus."
+              : "حالة طلبك هي $_lastStatus.",
+        );
+        break;
+
+      case "read_commands":
+        await tts.setLanguage(lp.isEnglish ? "en-US" : "ar-SA");
+        await tts.speak(
+          lp.isEnglish
+              ? "You can say: go back, order status, or how much is my order."
+              : "يمكنك قول: ارجع، حالة الطلب، أو كم إجمالي طلبي.",
+        );
         break;
 
       default:
@@ -421,7 +447,7 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
                             const Divider(height: 30),
                             _buildDetailRow(
                                 lp.getText('detail_total'),
-                                "\$${total.toStringAsFixed(2)}",
+                                "${total.toStringAsFixed(2)} EGP",
                                 lp,
                                 isTotal: true),
                           ],

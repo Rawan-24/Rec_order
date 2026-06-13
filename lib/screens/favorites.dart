@@ -1,10 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:grad_project/DatabaseService.dart';
-import 'package:grad_project/Models/FavoriteModel.dart';
+import 'package:provider/provider.dart';
 import 'package:grad_project/providers/LanguageProvider.dart';
 import 'package:grad_project/providers/AudioProvider.dart';
-import 'package:provider/provider.dart';
+import 'package:grad_project/DatabaseService.dart';
+import 'package:grad_project/Models/FavoriteModel.dart';
 
 import '../Models/Restaurant.dart';
 import '../services/ai_service.dart';
@@ -21,16 +21,29 @@ class FavoritesPage extends StatefulWidget {
 class _FavoritesPageState extends State<FavoritesPage> {
   bool _shouldListen = true;
   bool _isProcessing = false;
-  bool _navigating = false;
+  bool _navigating   = false;
 
   List<FavoriteModel> _loadedFavorites = [];
+
+  // ── Single stream subscription — never recreated ──────────────────────────
+  late final Stream<List<FavoriteModel>> _favStream;
 
   @override
   void initState() {
     super.initState();
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // Cache the stream once — do NOT call getFavorites() again in build()
+      _favStream = DatabaseService().getFavorites(user.uid);
+      _favStream.listen((favs) {
+        if (mounted) setState(() => _loadedFavorites = favs);
+      });
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
-      final lp = Provider.of<LanguageProvider>(context, listen: false);
+      final lp    = Provider.of<LanguageProvider>(context, listen: false);
       await Future.delayed(const Duration(milliseconds: 500));
       await audio.initSpeech();
       await _speakIntro(lp);
@@ -43,11 +56,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
     super.dispose();
   }
 
+  // ── Intro ─────────────────────────────────────────────────────────────────
   Future<void> _speakIntro(LanguageProvider lp) async {
     if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    final User? user = FirebaseAuth.instance.currentUser;
-
     await audio.stop();
 
     await audio.speak(
@@ -55,22 +67,15 @@ class _FavoritesPageState extends State<FavoritesPage> {
       lp.isEnglish ? "en-US" : "ar-SA",
     );
 
-    if (user != null) {
-      try {
-        final favs = await DatabaseService().getFavorites(user.uid).first;
-        if (mounted) setState(() => _loadedFavorites = favs);
-        await _speakFavoritesList(lp);
-      } catch (e) {
-        debugPrint("Favorites fetch error: $e");
-      }
-    }
+    // Use the already-loaded list — no extra Firestore call here
+    await _speakFavoritesList(lp);
 
     await Future.delayed(const Duration(milliseconds: 300));
 
     await audio.speak(
       lp.isEnglish
-          ? "Tap a restaurant to open its menu, or say its name to open it."
-          : "اضغط على مطعم لفتح قائمته، أو قل اسمه لفتحه.",
+          ? "Say a restaurant name to open it, or say go back."
+          : "قل اسم المطعم لفتحه، أو قل ارجع.",
       lp.isEnglish ? "en-US" : "ar-SA",
     );
 
@@ -96,7 +101,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
     await audio.speak(
       lp.isEnglish
-          ? "You have ${_loadedFavorites.length} favorite restaurant${_loadedFavorites.length == 1 ? '' : 's'}."
+          ? "You have ${_loadedFavorites.length} favorite "
+          "restaurant${_loadedFavorites.length == 1 ? '' : 's'}."
           : "لديك ${_loadedFavorites.length} مطاعم مفضلة.",
       lp.isEnglish ? "en-US" : "ar-SA",
     );
@@ -121,40 +127,30 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   // ── Keyword pre-filter ────────────────────────────────────────────────────
-  // Returns a command string if a clear keyword match is found,
-  // otherwise returns null so the AI is used as fallback.
   Map<String, String>? _quickCommandFromText(String text) {
     final t = text.toLowerCase().trim();
 
-    // Go back
-    if (t == "go back" ||
-        t == "back" ||
-        t == "return" ||
-        t == "ارجع" ||
-        t == "رجوع") {
+    if (t == "go back" || t == "back" || t == "return" ||
+        t == "ارجع" || t == "رجوع") {
       return {"command": "go_back"};
     }
 
-    // Try to match a favorite restaurant name directly in the utterance
     for (final fav in _loadedFavorites) {
       if (t.contains(fav.name.toLowerCase())) {
         return {"command": "select_restaurant", "value": fav.name};
       }
     }
 
-    // Block "select restaurant" (generic, no name) from reaching the AI
-    // so it doesn't get misclassified as open_restaurants
     if ((t.contains("select") || t.contains("open") || t.contains("choose")) &&
         (t.contains("restaurant") || t.contains("مطعم")) &&
-        !_loadedFavorites
-            .any((f) => t.contains(f.name.toLowerCase()))) {
-      // Generic "select/open restaurant" with no name — ask for clarification
+        !_loadedFavorites.any((f) => t.contains(f.name.toLowerCase()))) {
       return {"command": "clarify_restaurant"};
     }
 
-    return null; // fall through to AI
+    return null;
   }
 
+  // ── Listen loop ───────────────────────────────────────────────────────────
   void _startListening(LanguageProvider lp) async {
     if (!_shouldListen || !mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
@@ -168,53 +164,40 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
         debugPrint("USER SAID (Favorites): $text");
 
-        // Try keyword match first
         final quick = _quickCommandFromText(text);
         Map<String, dynamic> response;
 
         if (quick != null) {
           response = quick;
-          debugPrint("QUICK COMMAND (Favorites): $response");
         } else {
-          response = await AIService.sendMessage(text);
-          debugPrint("AI COMMAND (Favorites): ${response['command']}");
+          response = await AIService.sendMessage(text, screen: "favorites");
         }
 
         await _handleCommand(response, lp);
-
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
       },
       onError: (errorMsg) {
-        // AudioProvider handles error_no_match automatically.
-        // Only restart here for genuine errors.
-        debugPrint("STT real error on screen: $errorMsg");
+        debugPrint("STT real error (Favorites): $errorMsg");
       },
     );
   }
 
-  // ── Now receives the full response map, not just the command string ───────
+  // ── Command handler ───────────────────────────────────────────────────────
   Future<void> _handleCommand(
       Map<String, dynamic> response, LanguageProvider lp) async {
     if (_navigating || !mounted) return;
 
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    final audio   = Provider.of<AppAudioProvider>(context, listen: false);
     final command = (response['command'] ?? 'unknown').toString();
 
     switch (command) {
 
-    // ── Open a specific favorite by name ──────────────────────────────────
       case "select_restaurant":
         final value = (response['value'] ?? '').toString().toLowerCase();
         final match = _loadedFavorites.firstWhere(
               (f) => f.name.toLowerCase().contains(value) ||
               value.contains(f.name.toLowerCase()),
-          orElse: () => _loadedFavorites.firstWhere(
-                (_) => false,
-            orElse: () => FavoriteModel.empty(),
-          ),
+          orElse: () => FavoriteModel.empty(),
         );
 
         if (match.id.isEmpty) {
@@ -226,14 +209,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
           );
           break;
         }
-
         await _openFavorite(match, audio, lp);
         break;
 
-    // ── User said "select restaurant" with no name ────────────────────────
       case "clarify_restaurant":
-        final names =
-        _loadedFavorites.map((f) => f.name).join(', ');
+        final names = _loadedFavorites.map((f) => f.name).join(', ');
         await audio.speak(
           lp.isEnglish
               ? "Which restaurant? Your favorites are: $names."
@@ -244,14 +224,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
       case "go_back":
         _shouldListen = false;
-
+        await audio.stop();
         if (mounted) Navigator.pop(context);
         break;
 
       case "open_restaurants":
-      // Only navigate to RestaurantsScreen if the user explicitly asked
-      // to browse ALL restaurants (e.g. "show me all restaurants").
-      // Single-word utterances like "select restaurant" must NOT reach here.
         _shouldListen = false;
         await audio.speak(
           lp.isEnglish ? "Opening restaurants." : "جاري فتح المطاعم.",
@@ -275,12 +252,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
     }
   }
 
-  // ── Shared navigation helper used by both onTap and voice ─────────────────
+  // ── Open favorite ─────────────────────────────────────────────────────────
   Future<void> _openFavorite(
       FavoriteModel item, AppAudioProvider audio, LanguageProvider lp) async {
     if (_navigating) return;
-
-    _navigating = true;
+    _navigating   = true;
     _shouldListen = false;
     _isProcessing = true;
 
@@ -300,16 +276,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
       menu: const [],
     );
 
-    if (!mounted) {
-      _navigating = false;
-      return;
-    }
+    if (!mounted) { _navigating = false; return; }
 
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => Menu(restaurant: restaurant)),
     ).then((_) {
-      _navigating = false;
+      _navigating   = false;
       _shouldListen = true;
       _isProcessing = false;
       final lp2 = Provider.of<LanguageProvider>(context, listen: false);
@@ -317,11 +290,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
     });
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+  // KEY FIX: NO Provider.of<AppAudioProvider>(context) here.
+  // Only Consumer wraps the parts that actually need audio state.
   @override
   Widget build(BuildContext context) {
     final lp = Provider.of<LanguageProvider>(context);
-    final audio = Provider.of<AppAudioProvider>(context);
-    final User? user = FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
     final String userId = user?.uid ?? "";
     const primaryRed = Color(0xFFEB1B33);
 
@@ -334,57 +309,40 @@ class _FavoritesPageState extends State<FavoritesPage> {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
+
+      // ── FAB: only this rebuilds when mic state changes ────────────────────
+      floatingActionButton: Consumer<AppAudioProvider>(
+        builder: (_, audio, __) => FloatingActionButton(
+          backgroundColor: audio.isListening ? Colors.green : primaryRed,
+          onPressed: () {
+            if (!audio.speech.isListening && !_isProcessing) {
+              _shouldListen = true;
+              _startListening(lp);
+            }
+          },
+          child: Icon(
+            audio.isListening ? Icons.graphic_eq : Icons.mic,
+            color: Colors.white,
+          ),
+        ),
+      ),
+
+      // ── Body: uses _loadedFavorites state — no StreamBuilder here ─────────
       body: userId.isEmpty
           ? Center(child: Text(lp.getText('login_to_see_favs')))
-          : StreamBuilder<List<FavoriteModel>>(
-        stream: DatabaseService().getFavorites(userId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-                child:
-                Text("${lp.getText('error')}: ${snapshot.error}"));
-          }
-          final favorites = snapshot.data ?? [];
-
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted &&
-                _loadedFavorites.length != favorites.length) {
-              setState(() => _loadedFavorites = List.from(favorites));
-            }
-          });
-
-          if (favorites.isEmpty) {
-            return _buildEmptyState(primaryRed, lp);
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: favorites.length,
-            itemBuilder: (context, index) => _buildFavoriteCard(
-                favorites[index], primaryRed, userId, audio, lp),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: audio.isListening ? Colors.green : primaryRed,
-        onPressed: () {
-          if (!audio.speech.isListening && !_isProcessing) {
-            _shouldListen = true;
-            _startListening(lp);
-          }
-        },
-        child: Icon(
-            audio.isListening ? Icons.graphic_eq : Icons.mic,
-            color: Colors.white),
+          : _loadedFavorites.isEmpty
+          ? _buildEmptyState(primaryRed, lp)
+          : ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _loadedFavorites.length,
+        itemBuilder: (context, index) =>
+            _buildFavoriteCard(_loadedFavorites[index], primaryRed, userId, lp),
       ),
     );
   }
 
-  Widget _buildFavoriteCard(FavoriteModel item, Color accent, String userId,
-      AppAudioProvider audio, LanguageProvider lp) {
+  Widget _buildFavoriteCard(
+      FavoriteModel item, Color accent, String userId, LanguageProvider lp) {
     return Card(
       clipBehavior: Clip.antiAlias,
       elevation: 0,
@@ -394,7 +352,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
         side: BorderSide(color: Colors.grey[200]!),
       ),
       child: InkWell(
-        onTap: () => _openFavorite(item, audio, lp),
+        onTap: () {
+          final audio = Provider.of<AppAudioProvider>(context, listen: false);
+          _openFavorite(item, audio, lp);
+        },
         child: Column(
           children: [
             Stack(
@@ -407,8 +368,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                   errorBuilder: (_, __, ___) => Container(
                     height: 160,
                     color: Colors.grey[200],
-                    child:
-                    const Icon(Icons.broken_image, color: Colors.grey),
+                    child: const Icon(Icons.broken_image, color: Colors.grey),
                   ),
                 ),
                 Positioned(
@@ -419,14 +379,15 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     child: IconButton(
                       icon: const Icon(Icons.favorite, color: Colors.red),
                       onPressed: () {
+                        final audio = Provider.of<AppAudioProvider>(
+                            context, listen: false);
                         audio.speak(
                           lp.isEnglish
                               ? "Removed ${item.name} from favorites"
                               : "تم حذف ${item.name} من المفضلة",
                           lp.isEnglish ? "en-US" : "ar-SA",
                         );
-                        DatabaseService()
-                            .toggleFavorite(userId, item, true);
+                        DatabaseService().toggleFavorite(userId, item, true);
                       },
                     ),
                   ),
@@ -436,15 +397,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(item.name,
                           style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold)),
+                              fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
                       Text(item.cuisine,
                           style: TextStyle(
@@ -478,8 +437,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               _shouldListen = false;
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const RestaurantsScreen()),
+                MaterialPageRoute(builder: (_) => const RestaurantsScreen()),
               );
             },
             style: ElevatedButton.styleFrom(

@@ -26,7 +26,8 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
+      await audio.stop();
+      await Future.delayed(const Duration(milliseconds: 500)); // ✅ add this
       await audio.initSpeech();
       await _speakIntro();
     });
@@ -64,16 +65,15 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
     if (!status.isGranted) return;
 
     await audio.toggleListening(
-      "en", // language selection screen always listens in English first
-      // ── onResult ──────────────────────────────────────────────
+      "en",
           (text) async {
         if (_isProcessing || !_shouldListen) return;
         _isProcessing = true;
 
         print("USER SAID: $text");
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "language");
+        final command = (response['text'] ?? "unknown").toString(); // ✅ fixed line
 
         print("AI COMMAND: $command");
 
@@ -82,33 +82,27 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
         } else if (command == "language_ar") {
           await selectLanguage("ar");
         } else {
-          // Unrecognised — re-prompt and keep listening
-          if (mounted) {
-            final audio2 =
-            Provider.of<AppAudioProvider>(context, listen: false);
-            await audio2.speak(
-              'Say "English" or "Arabic" — قل إنجليزي أو عربي',
-              "en-US",
-            );
-          }
-        }
-
+    if (mounted) {
+    final audio2 = Provider.of<AppAudioProvider>(context, listen: false);
+    await audio2.speak(
+    'Say "English" or "Arabic" — قل إنجليزي أو عربي',
+    "en-US",
+    );
+    // ✅ Restart mic after speaking
+    _isProcessing = false;
+    _startListening();
+    return; // prevent double reset below
+    }
+    }
         _isProcessing = false;
 
-        // Restart mic after each result (mirrors SignIn pattern)
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening();
-        });
+        _isProcessing = false;
       },
-      // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
-        // AudioProvider handles error_no_match automatically.
-        // Only restart here for genuine errors.
         debugPrint("STT real error on screen: $errorMsg");
       },
     );
   }
-
   Future<void> selectLanguage(String code) async {
     if (isSaving || !mounted) return;
 
@@ -121,8 +115,7 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
 
     try {
       await audio.stop();
-      languageProvider.setLanguage(code);
-      await DatabaseService().updateUserLanguage(code);
+      await languageProvider.changeLanguage(code, audio: audio);
 
       final confirmMsg =
       code == 'ar' ? "تم اختيار اللغة العربية" : "English selected";

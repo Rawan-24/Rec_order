@@ -36,15 +36,17 @@ class _SignInScreenState extends State<SignInScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
-      final lp = Provider.of<LanguageProvider>(context, listen: false);
+      final lp    = Provider.of<LanguageProvider>(context, listen: false);
 
       audio.setPhoneController(phoneController);
 
+      // ✅ Stop any stale mic/TTS from previous session before starting fresh
+      await audio.stop();
+      await Future.delayed(const Duration(milliseconds: 500));
 
       await audio.initSpeech();
       _speakIntro(lp);
-    });
-  }
+    });}
 
   void _startListening(LanguageProvider lp) async {
     if (!_shouldListen) return;
@@ -65,8 +67,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
         print("USER SAID: $text");
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "sign_in");
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
 
         print("AI COMMAND: $command");
 
@@ -74,6 +76,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
         // ── Phone number entry ─────────────────────────────────
           case "type_phone":
+          case "provide_phone_number": // ✅ add this
+
             final phoneValue = (response['value'] ?? "").toString().trim();
             if (phoneValue.isNotEmpty) {
               setState(() {
@@ -151,6 +155,25 @@ class _SignInScreenState extends State<SignInScreen> {
                 : "رقمك هو $currentPhone");
             await audio.speak(readMsg, lp.isEnglish ? "en-US" : "ar-SA");
             break;
+        case "go_back":
+          _shouldListen = false;
+          await audio.stop();
+          await Future.delayed(const Duration(milliseconds: 300));
+
+        if (mounted) Navigator.pop(context);
+        break;
+
+        case "read_commands":
+        await audio.speak(
+        lp.isEnglish
+        ? "You can say: your phone number, sign in, sign up, "
+        "re-enter to clear, read my number, stay signed in, or stay signed out."
+            : "يمكنك قول: رقم هاتفك، تسجيل الدخول، إنشاء حساب، "
+        "أعد الإدخال لمسح الرقم، اقرأ رقمي، ابق مسجلاً، أو لا تبقى مسجلاً.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+        );
+        break;
+
 
         // ── Fallback ───────────────────────────────────────────
           default:
@@ -165,9 +188,13 @@ class _SignInScreenState extends State<SignInScreen> {
         }
 
         _isProcessing = false;
-
-
-      },
+        // ✅ Always restart mic after TTS finishes
+        if (mounted && _shouldListen) {
+          await Future.delayed(const Duration(milliseconds: 300));
+          _startListening(lp);
+        }
+          },
+      // ── onError: retry on silence / no-match ──────────────────
       // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -359,8 +386,8 @@ class _SignInScreenState extends State<SignInScreen> {
                     lp.isEnglish ? TextAlign.left : TextAlign.right,
                     decoration: InputDecoration(
                       hintText: lp.isEnglish
-                          ? "+966XXXXXXXXX"
-                          : "XXXXXXXXX٩٦٦+",
+                          ? "+20XXXXXXXXXX"
+                          : "XXXXXXXXXX02+",
                       prefixIcon: const Icon(Icons.phone),
                       // Clear button shown when there's text
                       suffixIcon: phoneController.text.isNotEmpty

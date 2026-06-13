@@ -102,18 +102,16 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
           debugPrint("LOCAL MATCH (VoiceSettings): $local");
           response = local;
         } else {
-          response = await AIService.sendMessage(text);
+          response = await AIService.sendMessage(text, screen: "voice_settings");
         }
 
-        final command = (response['command'] ?? "unknown").toString();
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
         debugPrint("AI COMMAND (VoiceSettings): $command");
 
         await _handleCommand(command, text, lp);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted && _voiceCommands) _startListening(lp);
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -323,6 +321,8 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     // ── Go back ───────────────────────────────────────────────────────────
       case 'go_back':
         _shouldListen = false;
+        await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.pop(context);
         break;
 
@@ -330,6 +330,15 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
         await _speakIntro(lp);
         break;
 
+      case 'read_commands':
+        await _speakIfEnabled(audio, lp,
+            en: "You can say: turn on or off voice commands, voice feedback, "
+                "or wake word. Say speed and a value like 1.5. "
+                "Say volume up or down. Say English or Arabic. Say go back.",
+            ar: "يمكنك قول: شغّل أو أوقف أوامر الصوت، الردود الصوتية، "
+                "أو كلمة التنبيه. قل سرعة ثم رقم. قل صوت أعلى أو أخفض. "
+                "قل إنجليزي أو عربي. قل ارجع.");
+        break;
       default:
         await _speakIfEnabled(audio, lp,
             en: "Say turn on or off voice commands, voice feedback, or wake word. "
@@ -362,10 +371,16 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
 
   Future<void> _applySpeed(
       String label, LanguageProvider lp, AppAudioProvider audio) async {
-    final numStr = label.split('x')[0];
-    final rate   = double.tryParse(numStr) ?? 1.0;
+    final numStr  = label.split('x')[0];
+    final userRate = double.tryParse(numStr) ?? 1.0;
+
+    // flutter_tts scale: 0.0–1.0 where 0.5 = normal speed.
+    // User-facing labels are multipliers (1.0 = normal),
+    // so divide by 2 to convert.
+    final ttsRate = (userRate / 1.7).clamp(0.0, 1.0);
+
     setState(() => _selectedSpeed = label);
-    audio.setSpeechRate(rate);
+    audio.setSpeechRate(ttsRate);
     _saveToCloud();
     await _speakIfEnabled(audio, lp,
         en: "Speed set to $label.",
@@ -409,13 +424,14 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
     final code = _selectedLanguage.contains("Arabic") ? 'ar' : 'en';
-    if (lp.currentLanguage != code) lp.changeLanguage(code);
+    if (lp.currentLanguage != code) lp.changeLanguage(code, audio: audio);
 
-    final rate = double.tryParse(_selectedSpeed.split('x')[0]) ?? 1.0;
-    audio.setSpeechRate(rate);
+    final userRate = double.tryParse(_selectedSpeed.split('x')[0]) ?? 1.0;
+    final ttsRate  = (userRate / 1.7).clamp(0.0, 1.0); // ← fixed
+    audio.setSpeechRate(ttsRate);
     audio.setVolume(_volume / 100);
     audio.setFeedbackEnabled(_voiceFeedback);
-    audio.setAlwaysOn(_voiceCommands && _wakeWord); // ← ADDED
+    audio.setAlwaysOn(_voiceCommands && _wakeWord);
   }
 
   Future<void> _handleLanguageChange(String displayName) async {
@@ -423,7 +439,7 @@ class _VoiceSettingsPageState extends State<VoiceSettingsPage> {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
     setState(() => _selectedLanguage = displayName);
     final code = displayName.contains("Arabic") ? 'ar' : 'en';
-    await lp.changeLanguage(code);
+    await lp.changeLanguage(code, audio: audio);
     await _speakIfEnabled(audio, lp,
         en: "Language changed to English.",
         ar: "تم تغيير اللغة إلى العربية.");

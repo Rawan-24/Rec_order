@@ -168,7 +168,8 @@ class _MenuItemState extends State<MenuItem> {
         _isProcessing = true;
 
         debugPrint("USER SAID (MenuItem): $words");
-        final response = await AIService.sendMessage(words);
+        final response = await AIService.sendMessage(words, screen: "menu_item");
+
 
         // ── FIX: extract both command AND value from the response map ──
         final command = (response['command'] ?? "unknown").toString();
@@ -178,9 +179,7 @@ class _MenuItemState extends State<MenuItem> {
         await _handleCommand(command, value, words);
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening();
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -201,48 +200,37 @@ class _MenuItemState extends State<MenuItem> {
 
     // ── NEW: handles {command: select_size, value: Small|Medium|Large} ──
       case "select_size":
-        final size = value.isNotEmpty ? value : rawText;
-        if (size == 'Small' || size == 'Medium' || size == 'Large') {
-          setState(() => selectedSize = size);
+        String raw = value.toLowerCase();
+
+        final looksValid = raw.isNotEmpty &&
+            !raw.contains('|') &&
+            RegExp(r'(small|medium|large)').allMatches(raw).length == 1;
+
+        if (!looksValid) raw = rawText.toLowerCase();
+
+        String size = '';
+        if (raw.contains('large')) {
+          size = 'Large';
+        } else if (raw.contains('medium')) {
+          size = 'Medium';
+        } else if (raw.contains('small')) {
+          size = 'Small';
+        }
+
+        if (size.isNotEmpty) {
+          if (size != selectedSize) setState(() => selectedSize = size);
+          await audio.speak("$size selected.", lp.isEnglish ? "en-US" : "ar-SA");
+          await _speakCurrentTotal();
+        } else {
           await audio.speak(
             lp.isEnglish
-                ? "$size size selected.${size == 'Large' ? ' Plus 50 Egyptian pounds.' : ''}"
-                : "تم اختيار الحجم ${size == 'Small' ? 'الصغير' : size == 'Medium' ? 'المتوسط' : 'الكبير'}.${size == 'Large' ? ' زيادة 50 جنيه مصري.' : ''}",
+                ? "Sorry, please say small, medium, or large."
+                : "عذراً، قل صغير أو متوسط أو كبير.",
             lp.isEnglish ? "en-US" : "ar-SA",
           );
-          await _speakCurrentTotal();
         }
         break;
-
     // ── kept as fallback in case Rasa ever returns the old command names ──
-      case "select_size_small":
-        setState(() => selectedSize = 'Small');
-        await audio.speak(
-          lp.isEnglish ? "Small size selected." : "تم اختيار الحجم الصغير.",
-          lp.isEnglish ? "en-US" : "ar-SA",
-        );
-        await _speakCurrentTotal();
-        break;
-
-      case "select_size_medium":
-        setState(() => selectedSize = 'Medium');
-        await audio.speak(
-          lp.isEnglish ? "Medium size selected." : "تم اختيار الحجم المتوسط.",
-          lp.isEnglish ? "en-US" : "ar-SA",
-        );
-        await _speakCurrentTotal();
-        break;
-
-      case "select_size_large":
-        setState(() => selectedSize = 'Large');
-        await audio.speak(
-          lp.isEnglish
-              ? "Large size selected. Plus 50 Egyptian pounds added."
-              : "تم اختيار الحجم الكبير. تمت إضافة 50 جنيه مصري.",
-          lp.isEnglish ? "en-US" : "ar-SA",
-        );
-        await _speakCurrentTotal();
-        break;
 
       case "increase_quantity":
         setState(() => quantity++);
@@ -300,7 +288,9 @@ class _MenuItemState extends State<MenuItem> {
           lp.isEnglish ? "Going back to menu." : "العودة للقائمة.",
           lp.isEnglish ? "en-US" : "ar-SA",
         );
+
         await audio.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.pop(context);
         break;
 

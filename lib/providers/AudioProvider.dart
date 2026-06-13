@@ -88,10 +88,15 @@ class AppAudioProvider extends ChangeNotifier {
     if (status == "done") {
       _isListening = false;
       notifyListeners();
-      // ✅ Don't restart here — _onError handles it for error cases.
-      // Only restart here if there was NO error (normal clean end).
-      if (!_isSpeaking && !_isRestarting && !_resultJustDelivered) {
-        _scheduleRestart(300);
+
+      if (!_isSpeaking && !_isRestarting) {
+        if (_resultJustDelivered) {
+          // Screen's 600ms callback will restart first,
+          // this 3s safety net fires only if it doesn't
+          _scheduleRestart(3000);
+        } else {
+          _scheduleRestart(300);
+        }
       }
       _resultJustDelivered = false;
     }
@@ -109,20 +114,44 @@ class AppAudioProvider extends ChangeNotifier {
       case "error_no_match":
         _scheduleRestart(3000);
         break;
+
       case "error_speech_timeout":
-        _scheduleRestart(60000);
+        _scheduleRestart(1000);
         break;
+
       case "error_client":
-        _scheduleRestart(60000);  // longer backoff — emulator is flaky
+      // ✅ If words were captured before session died, submit them now
+        if (_lastWords.isNotEmpty && _currentOnResult != null) {
+          final words = _lastWords;
+          _lastWords = "";
+          _resultJustDelivered = true;
+          notifyListeners();
+          _currentOnResult!(words);  // treat partial as final
+        }
+        _scheduleRestart(5000);
         break;
+
       default:
         final cb = _pendingErrorCallback;
         _pendingErrorCallback = null;
         if (cb != null) cb(error.errorMsg);
-        _scheduleRestart(60000);
+        _scheduleRestart(2000);
     }
   }
+  Future<void> onLanguageChanged(String newLang) async {
+    if (_currentLang == newLang) return;
+    debugPrint("Language changed to $newLang — restarting mic");
+    _currentLang = newLang;
 
+    if (speech.isListening) {
+      speech.stop();
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+
+    if (_isAlwaysOn && _currentOnResult != null && !_isSpeaking) {
+      _scheduleRestart(0);
+    }
+  }
 // ── Single-slot restart guard ──────────────────────────────────────────────
   void _scheduleRestart(int delayMs) {
     if (_isSpeaking)              return;
@@ -185,7 +214,8 @@ class AppAudioProvider extends ChangeNotifier {
     _currentOnResult = onResult;
     _currentOnError  = onError;
     _noMatchCount    = 0;
-
+    _isRestarting        = false;        // ✅ cancel any pending delayed restart
+    _resultJustDelivered = false;        // ✅ clear stale flag from previous screen
     if (!_speechInitialized) await initSpeech();
 
     if (speech.isListening) {
@@ -251,6 +281,11 @@ class AppAudioProvider extends ChangeNotifier {
     await _ttsService.stop();
     notifyListeners();
     debugPrint("AppAudioProvider: stopped.");
+    // ✅ Safety net — if the parent screen's toggleListening() fires first,
+    // it cancels this restart. If not, this brings the mic back automatically.
+    if (_isAlwaysOn && _currentOnResult != null) {
+      _scheduleRestart(1500);
+    }
   }
 
   // ── stopAll() — logout / app close ────────────────────────────────────────

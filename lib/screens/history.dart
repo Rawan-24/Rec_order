@@ -13,16 +13,10 @@ import 'package:provider/provider.dart';
 import '../services/ai_service.dart';
 import 'TrackOrderScreen.dart';
 
-/// Describes which guided step the voice flow is currently in.
 enum _VoiceStep {
-  /// Waiting for user to say "active orders" or "past orders".
   awaitingTabChoice,
-
-  /// Active-orders tab is shown; waiting for a restaurant/order name to track.
-  awaitingActiveOrderName,
-
-  /// Past-orders tab is shown; waiting for a restaurant name to reorder.
-  awaitingPastOrderName,
+  awaitingActiveOrderIndex,
+  awaitingPastOrderIndex,
 }
 
 class OrderHistoryPage extends StatefulWidget {
@@ -34,23 +28,24 @@ class OrderHistoryPage extends StatefulWidget {
 
 class _OrderHistoryPageState extends State<OrderHistoryPage>
     with SingleTickerProviderStateMixin {
-  // ── Tab controller ──────────────────────────────────────────────────────────
   late final TabController _tabController;
 
-  // ── Voice flow state ────────────────────────────────────────────────────────
   _VoiceStep _voiceStep = _VoiceStep.awaitingTabChoice;
   bool _shouldListen = true;
   bool _isProcessing = false;
 
-  // ── Lifecycle ───────────────────────────────────────────────────────────────
+  // ✅ Local cached order lists for index-based selection
+  List<Map<String, dynamic>> _activeOrdersList = [];
+  List<String>               _activeOrderIds   = [];
+  List<Map<String, dynamic>> _pastOrdersList   = [];
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final audio = Provider.of<AppAudioProvider>(context, listen: false);
-      final lp = Provider.of<LanguageProvider>(context, listen: false);
+      final lp    = Provider.of<LanguageProvider>(context, listen: false);
       await Future.delayed(const Duration(milliseconds: 500));
       await audio.initSpeech();
       await _speakIntro(lp);
@@ -64,12 +59,11 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
     super.dispose();
   }
 
-  // ── Intro speech (step 1 of flow) ───────────────────────────────────────────
+  // ── Intro ──────────────────────────────────────────────────────────────────
   Future<void> _speakIntro(LanguageProvider lp) async {
     if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
     await audio.stop();
-
     setState(() => _voiceStep = _VoiceStep.awaitingTabChoice);
 
     await audio.speak(
@@ -87,7 +81,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
     }
   }
 
-  // ── Listening loop ──────────────────────────────────────────────────────────
+  // ── Listen loop ────────────────────────────────────────────────────────────
   void _startListening(LanguageProvider lp) async {
     if (!_shouldListen || !mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
@@ -100,26 +94,18 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         _isProcessing = true;
         debugPrint("USER SAID (History): $text");
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "order_history");
+        final command  = (response['command'] ?? "unknown").toString();
         debugPrint("AI COMMAND (History): $command");
 
         await _handleCommand(command, response, text, lp);
         _isProcessing = false;
-
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening(lp);
-        });
       },
-      onError: (errorMsg) {
-        // AudioProvider handles error_no_match automatically.
-        // Only restart here for genuine errors.
-        debugPrint("STT real error on screen: $errorMsg");
-      },
+      onError: (e) => debugPrint("STT error: $e"),
     );
   }
 
-  // ── Master command router ───────────────────────────────────────────────────
+  // ── Master router ──────────────────────────────────────────────────────────
   Future<void> _handleCommand(
       String command,
       Map<String, dynamic> response,
@@ -129,53 +115,46 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
     if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
 
-    // ── Global: go back is always available ───────────────────────────────────
     if (command == "go_back") {
       _shouldListen = false;
       await audio.stop();
+      await Future.delayed(const Duration(milliseconds: 300));
       if (mounted) Navigator.pop(context);
       return;
     }
 
-    // ── Route based on current voice step ────────────────────────────────────
     switch (_voiceStep) {
       case _VoiceStep.awaitingTabChoice:
         await _handleTabChoice(command, rawText, lp);
         break;
-
-      case _VoiceStep.awaitingActiveOrderName:
-        await _handleActiveOrderName(command, response, rawText, lp);
+      case _VoiceStep.awaitingActiveOrderIndex:
+        await _handleActiveOrderIndex(command, response, rawText, lp);
         break;
-
-      case _VoiceStep.awaitingPastOrderName:
-        await _handlePastOrderName(command, response, rawText, lp);
+      case _VoiceStep.awaitingPastOrderIndex:
+        await _handlePastOrderIndex(command, response, rawText, lp);
         break;
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 1 ── Tab choice
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── Step 1: Tab choice ─────────────────────────────────────────────────────
   Future<void> _handleTabChoice(
       String command,
       String rawText,
       LanguageProvider lp,
       ) async {
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
     final lower = rawText.toLowerCase();
 
     final bool wantsActive = command == "open_active_orders" ||
         command == "track_active_order" ||
-        command == "open_track" ||
         lower.contains("active") ||
         lower.contains("current") ||
         lower.contains("نشط") ||
         lower.contains("الجارية") ||
-        lower.contains("الحالية");
+        lower.contains("الحالية") ||
+        lower.contains("النشطة");
 
     final bool wantsPast = command == "open_past_orders" ||
         command == "reorder_last" ||
-        command == "open_history" ||
         lower.contains("past") ||
         lower.contains("previous") ||
         lower.contains("history") ||
@@ -184,30 +163,15 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         lower.contains("السابقة");
 
     if (wantsActive) {
-      // Switch to active tab
       _tabController.animateTo(0);
-      setState(() => _voiceStep = _VoiceStep.awaitingActiveOrderName);
-
-      await audio.speak(
-        lp.isEnglish
-            ? "Showing active orders. Which order would you like to track? "
-            "Say the restaurant name."
-            : "عرض الطلبات النشطة. أي طلب تريد تتبعه؟ قل اسم المطعم.",
-        lp.isEnglish ? "en-US" : "ar-SA",
-      );
+      setState(() => _voiceStep = _VoiceStep.awaitingActiveOrderIndex);
+      await _readActiveOrdersList(lp);
     } else if (wantsPast) {
-      // Switch to past tab
       _tabController.animateTo(1);
-      setState(() => _voiceStep = _VoiceStep.awaitingPastOrderName);
-
-      await audio.speak(
-        lp.isEnglish
-            ? "Showing past orders. Which order would you like to reorder? "
-            "Say the restaurant name."
-            : "عرض الطلبات السابقة. أي طلب تريد إعادته؟ قل اسم المطعم.",
-        lp.isEnglish ? "en-US" : "ar-SA",
-      );
+      setState(() => _voiceStep = _VoiceStep.awaitingPastOrderIndex);
+      await _readPastOrdersList(lp);
     } else {
+      final audio = Provider.of<AppAudioProvider>(context, listen: false);
       await audio.speak(
         lp.isEnglish
             ? "Please say active orders or past orders."
@@ -217,207 +181,85 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 2A ── Active orders: user says restaurant / order name → track
-  // ─────────────────────────────────────────────────────────────────────────────
-  Future<void> _handleActiveOrderName(
-      String command,
-      Map<String, dynamic> response,
-      String rawText,
-      LanguageProvider lp,
-      ) async {
+  // ── Read active orders aloud ───────────────────────────────────────────────
+  Future<void> _readActiveOrdersList(LanguageProvider lp) async {
+    if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
-    // Allow "go back" to restart from intro
-    if (command == "go_back") {
-      await _speakIntro(lp);
-      return;
-    }
-
-    final valueFromAI = (response['value'] ?? "").toString().trim();
-    final itemName = valueFromAI.isNotEmpty
-        ? valueFromAI.toLowerCase()
-        : _extractSubject(rawText);
-
-    await audio.speak(
-      lp.isEnglish ? "Looking up your order." : "جاري البحث عن طلبك.",
-      lp.isEnglish ? "en-US" : "ar-SA",
-    );
-
-    await _trackByItemName(itemName, lp);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 2B ── Past orders: user says restaurant name → reorder → cart
-  // ─────────────────────────────────────────────────────────────────────────────
-  Future<void> _handlePastOrderName(
-      String command,
-      Map<String, dynamic> response,
-      String rawText,
-      LanguageProvider lp,
-      ) async {
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-
-    // Allow "go back" to restart from intro
-    if (command == "go_back") {
-      await _speakIntro(lp);
-      return;
-    }
-
-    final valueFromAI = (response['value'] ?? "").toString().trim();
-    final restaurantName = valueFromAI.isNotEmpty
-        ? valueFromAI.toLowerCase()
-        : _extractSubject(rawText);
-
-    await audio.speak(
-      lp.isEnglish
-          ? "Looking up your past orders."
-          : "جاري البحث في الطلبات السابقة.",
-      lp.isEnglish ? "en-US" : "ar-SA",
-    );
-
-    await _reorderByRestaurant(restaurantName, lp);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Helpers
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /// Strips filler words to leave a clean search term.
-  String _extractSubject(String rawText) {
-    return rawText
-        .toLowerCase()
-        .replaceAll(
-      RegExp(
-        r'\b(i want to|i want|i would like|reorder|order again|order|track|my|the|a|an|please|from|past|history|أعد|أريد|تتبع|طلب|من|الطلب|السابق|سابق)\b',
-      ),
-      '',
-    )
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  // ── Track active order by restaurant / item name ────────────────────────────
-  Future<void> _trackByItemName(String itemName, LanguageProvider lp) async {
-    final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    final user = FirebaseAuth.instance.currentUser;
+    final user  = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Fast path — no composite index needed
     try {
-      final id = await DatabaseService().getActiveOrderId();
-      if (id != null) {
-        if (itemName.isEmpty) {
-          await audio.speak(
-            lp.isEnglish ? "Opening tracking." : "جاري فتح التتبع.",
-            lp.isEnglish ? "en-US" : "ar-SA",
-          );
-          _navigateToTrack(id, lp);
-          return;
-        }
+      final snapshot = await DatabaseService().getActiveOrders(user.uid).first;
+      final docs = snapshot.docs.where((doc) {
+        final data   = doc.data() as Map<String, dynamic>;
+        final status = (data['status'] ?? '').toString().toLowerCase().trim();
+        return status != 'delivered' && status != 'cancelled';
+      }).toList();
 
-        final doc =
-        await FirebaseFirestore.instance.collection('orders').doc(id).get();
-        if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>;
-          final restaurantName =
-          (data['restaurantName'] ?? '').toString().toLowerCase();
-          final List<dynamic> items = data['items'] ?? [];
+      _activeOrdersList = docs.map((d) => d.data() as Map<String, dynamic>).toList();
+      _activeOrderIds   = docs.map((d) => d.id).toList();
 
-          final matchesRestaurant = restaurantName.contains(itemName) ||
-              itemName.contains(restaurantName);
-          final matchesItem = items.any((item) {
-            final name = (item['name'] ?? '').toString().toLowerCase();
-            return name.contains(itemName) || itemName.contains(name);
-          });
-
-          if (matchesRestaurant || matchesItem || items.isEmpty) {
-            await audio.speak(
-              lp.isEnglish ? "Opening tracking." : "جاري فتح التتبع.",
-              lp.isEnglish ? "en-US" : "ar-SA",
-            );
-            _navigateToTrack(id, lp);
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint("getActiveOrderId error: $e");
-    }
-
-    // Slow path — stream query
-    try {
-      final snapshot = await DatabaseService()
-          .getActiveOrders(user.uid)
-          .first
-          .timeout(const Duration(seconds: 5));
-
-      if (snapshot.docs.isEmpty) {
+      if (_activeOrdersList.isEmpty) {
         await audio.speak(
           lp.isEnglish ? "No active orders found." : "لا توجد طلبات نشطة.",
           lp.isEnglish ? "en-US" : "ar-SA",
         );
-        // Go back to tab-choice step so the user can try again
         await _resetToTabStep(lp);
         return;
       }
 
-      for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final restaurantName =
-        (data['restaurantName'] ?? '').toString().toLowerCase();
-        final List<dynamic> items = data['items'] ?? [];
+      await audio.speak(
+        lp.isEnglish
+            ? "You have ${_activeOrdersList.length} active orders."
+            : "لديك ${_activeOrdersList.length} طلبات نشطة.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+      );
 
-        final matchesRestaurant = itemName.isEmpty ||
-            restaurantName.contains(itemName) ||
-            itemName.contains(restaurantName);
+      for (int i = 0; i < _activeOrdersList.length; i++) {
+        final order      = _activeOrdersList[i];
+        final restaurant = order['restaurantName'] ?? '';
+        final status     = order['status'] ?? '';
+        final total      = (order['totalPrice'] ?? 0).toStringAsFixed(2);
+        final items      = (order['items'] as List? ?? []);
+        final itemNames  = items.map((it) => it['name'] ?? '').join(', ');
 
-        final matchesItem = items.any((item) {
-          final name = (item['name'] ?? '').toString().toLowerCase();
-          return name.contains(itemName) || itemName.contains(name);
-        });
-
-        if (matchesRestaurant || matchesItem) {
-          await audio.speak(
-            lp.isEnglish ? "Opening tracking." : "جاري فتح التتبع.",
-            lp.isEnglish ? "en-US" : "ar-SA",
-          );
-          _navigateToTrack(doc.id, lp);
-          return;
-        }
+        await audio.speak(
+          lp.isEnglish
+              ? "Order ${i + 1}: $restaurant. $itemNames. Total $total pounds. Status: $status."
+              : "طلب ${i + 1}: $restaurant. $itemNames. الإجمالي $total جنيه. الحالة: $status.",
+          lp.isEnglish ? "en-US" : "ar-SA",
+        );
       }
 
       await audio.speak(
         lp.isEnglish
-            ? "Could not find that order. Please try another restaurant name."
-            : "لم أجد هذا الطلب. حاول باسم مطعم آخر.",
+            ? "Say order 1, order 2, or just the number to track it."
+            : "قل طلب 1 أو طلب 2 أو فقط الرقم لتتبعه.",
         lp.isEnglish ? "en-US" : "ar-SA",
       );
-      // Stay in awaitingActiveOrderName so user can retry
     } catch (e) {
-      debugPrint("Track stream error: $e");
-      await audio.speak(
-        lp.isEnglish
-            ? "Could not load orders. Please try again."
-            : "تعذر تحميل الطلبات. حاول مرة أخرى.",
-        lp.isEnglish ? "en-US" : "ar-SA",
-      );
+      debugPrint("_readActiveOrdersList error: $e");
     }
   }
 
-  // ── Reorder past order by restaurant name ──────────────────────────────────
-  Future<void> _reorderByRestaurant(
-      String restaurantQuery, LanguageProvider lp) async {
+  // ── Read past orders aloud ─────────────────────────────────────────────────
+  Future<void> _readPastOrdersList(LanguageProvider lp) async {
+    if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    final cart = Provider.of<CartProvider>(context, listen: false);
-    final user = FirebaseAuth.instance.currentUser;
+    final user  = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     try {
-      final snapshot =
-      await DatabaseService().getPastOrders(user.uid).first;
+      final snapshot = await DatabaseService().getPastOrders(user.uid).first;
+      final docs = snapshot.docs.where((doc) {
+        final data   = doc.data() as Map<String, dynamic>;
+        final status = (data['status'] ?? '').toString().toLowerCase().trim();
+        return status == 'delivered';
+      }).toList();
 
-      if (snapshot.docs.isEmpty) {
+      _pastOrdersList = docs.map((d) => d.data() as Map<String, dynamic>).toList();
+
+      if (_pastOrdersList.isEmpty) {
         await audio.speak(
           lp.isEnglish ? "No past orders found." : "لا توجد طلبات سابقة.",
           lp.isEnglish ? "en-US" : "ar-SA",
@@ -426,80 +268,163 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         return;
       }
 
-      // If user gave no specific name, reorder the most recent past order
-      if (restaurantQuery.isEmpty) {
-        final doc = snapshot.docs.first;
-        final data = doc.data() as Map<String, dynamic>;
-        await _addOrderToCart(data, cart);
+      await audio.speak(
+        lp.isEnglish
+            ? "You have ${_pastOrdersList.length} past orders."
+            : "لديك ${_pastOrdersList.length} طلبات سابقة.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+      );
+
+      for (int i = 0; i < _pastOrdersList.length; i++) {
+        final order      = _pastOrdersList[i];
+        final restaurant = order['restaurantName'] ?? '';
+        final total      = (order['totalPrice'] ?? 0).toStringAsFixed(2);
+        final items      = (order['items'] as List? ?? []);
+        final itemNames  = items.map((it) => it['name'] ?? '').join(', ');
+
         await audio.speak(
           lp.isEnglish
-              ? "Added your last order to cart. Opening cart."
-              : "تمت إضافة آخر طلب للسلة. جاري فتح السلة.",
+              ? "Order ${i + 1}: $restaurant. $itemNames. Total $total pounds."
+              : "طلب ${i + 1}: $restaurant. $itemNames. الإجمالي $total جنيه.",
           lp.isEnglish ? "en-US" : "ar-SA",
         );
-        _navigateToCart(lp);
-        return;
-      }
-
-      // Search for a matching restaurant
-      for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final restaurantName =
-        (data['restaurantName'] ?? '').toString().toLowerCase();
-
-        if (restaurantName.contains(restaurantQuery) ||
-            restaurantQuery.contains(restaurantName)) {
-          await _addOrderToCart(data, cart);
-          final displayName = data['restaurantName'] ?? '';
-          await audio.speak(
-            lp.isEnglish
-                ? "Added order from $displayName to cart. Opening cart."
-                : "تمت إضافة طلب $displayName للسلة. جاري فتح السلة.",
-            lp.isEnglish ? "en-US" : "ar-SA",
-          );
-          _navigateToCart(lp);
-          return;
-        }
       }
 
       await audio.speak(
         lp.isEnglish
-            ? "Could not find an order from that restaurant. Please try another name."
-            : "لم أجد طلبًا من هذا المطعم. حاول باسم آخر.",
+            ? "Say order 1, order 2, or just the number to reorder."
+            : "قل طلب 1 أو طلب 2 أو فقط الرقم لإعادة الطلب.",
         lp.isEnglish ? "en-US" : "ar-SA",
       );
-      // Stay in awaitingPastOrderName so user can retry
     } catch (e) {
-      debugPrint("Reorder error: $e");
-      await audio.speak(
-        lp.isEnglish
-            ? "Error processing reorder."
-            : "خطأ في إعادة الطلب.",
-        lp.isEnglish ? "en-US" : "ar-SA",
-      );
+      debugPrint("_readPastOrdersList error: $e");
     }
   }
 
-  /// Adds all items from an order document to the cart.
+  // ── Step 2A: Active order index handler ────────────────────────────────────
+  Future<void> _handleActiveOrderIndex(
+      String command,
+      Map<String, dynamic> response,
+      String rawText,
+      LanguageProvider lp,
+      ) async {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+
+    if (command == "go_back") { await _speakIntro(lp); return; }
+
+    // Get index from AI first, then fallback to raw text parser
+    int? index;
+    if (command == "select_order") {
+      index = int.tryParse((response['value'] ?? "").toString().trim());
+    }
+    index ??= _parseIndexFromText(rawText);
+
+    if (index == null || index < 1 || index > _activeOrdersList.length) {
+      await audio.speak(
+        lp.isEnglish
+            ? "Please say a number between 1 and ${_activeOrdersList.length}."
+            : "من فضلك قل رقم بين 1 و ${_activeOrdersList.length}.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+      );
+      return;
+    }
+
+    final orderId = _activeOrderIds[index - 1];
+    await audio.speak(
+      lp.isEnglish
+          ? "Opening tracking for order $index."
+          : "فتح تتبع الطلب $index.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+    _navigateToTrack(orderId, lp);
+  }
+
+  // ── Step 2B: Past order index handler ─────────────────────────────────────
+  Future<void> _handlePastOrderIndex(
+      String command,
+      Map<String, dynamic> response,
+      String rawText,
+      LanguageProvider lp,
+      ) async {
+    final audio = Provider.of<AppAudioProvider>(context, listen: false);
+    final cart  = Provider.of<CartProvider>(context, listen: false);
+
+    if (command == "go_back") { await _speakIntro(lp); return; }
+
+    int? index;
+    if (command == "select_order") {
+      index = int.tryParse((response['value'] ?? "").toString().trim());
+    }
+    index ??= _parseIndexFromText(rawText);
+
+    if (index == null || index < 1 || index > _pastOrdersList.length) {
+      await audio.speak(
+        lp.isEnglish
+            ? "Please say a number between 1 and ${_pastOrdersList.length}."
+            : "من فضلك قل رقم بين 1 و ${_pastOrdersList.length}.",
+        lp.isEnglish ? "en-US" : "ar-SA",
+      );
+      return;
+    }
+
+    final order      = _pastOrdersList[index - 1];
+    final restaurant = order['restaurantName'] ?? '';
+    await _addOrderToCart(order, cart);
+    await audio.speak(
+      lp.isEnglish
+          ? "Added order $index from $restaurant to cart. Opening cart."
+          : "تمت إضافة الطلب $index من $restaurant للسلة. جاري فتح السلة.",
+      lp.isEnglish ? "en-US" : "ar-SA",
+    );
+    _navigateToCart(lp);
+  }
+
+  // ── Parse index from raw speech ────────────────────────────────────────────
+  int? _parseIndexFromText(String text) {
+    final lower = text.toLowerCase().trim();
+
+    // Arabic ordinals and numbers
+    if (lower.contains('الأول')  || lower.contains('الاول')  ||
+        lower.contains('واحد')   || lower.contains('أول')) return 1;
+    if (lower.contains('الثاني') || lower.contains('التاني') ||
+        lower.contains('اتنين')  || lower.contains('ثاني')   ||
+        lower.contains('تاني'))  return 2;
+    if (lower.contains('الثالث') || lower.contains('التالت') ||
+        lower.contains('تلاتة') || lower.contains('ثالث')   ||
+        lower.contains('تالت'))  return 3;
+    if (lower.contains('الرابع') || lower.contains('اربعة')  ||
+        lower.contains('رابع'))  return 4;
+    if (lower.contains('الخامس') || lower.contains('خمسة')   ||
+        lower.contains('خامس'))  return 5;
+
+    // English and digits
+    final match = RegExp(r'\b([1-9])\b').firstMatch(lower);
+    if (match != null) return int.tryParse(match.group(1)!);
+
+    return null;
+  }
+
+  // ── Add order items to cart ────────────────────────────────────────────────
   Future<void> _addOrderToCart(
-      Map<String, dynamic> data, CartProvider cart) async {
-    final List<dynamic> items = data['items'] ?? [];
-    final String restaurantName = data['restaurantName'] ?? '';
+      Map<String, dynamic> data,
+      CartProvider cart,
+      ) async {
+    final items          = (data['items'] as List? ?? []);
+    final restaurantName = data['restaurantName'] ?? '';
     for (final im in items) {
       cart.addItem(CartItem(
-        id: DateTime.now().millisecondsSinceEpoch.toString() +
-            (im['name'] ?? ''),
-        name: im['name'] ?? 'Unknown',
-        price: (im['price'] as num?)?.toDouble() ?? 0.0,
-        quantity: im['quantity'] ?? 1,
+        id:         DateTime.now().millisecondsSinceEpoch.toString() + (im['name'] ?? ''),
+        name:       im['name']       ?? 'Unknown',
+        price:      (im['price'] as num?)?.toDouble() ?? 0.0,
+        quantity:   im['quantity']   ?? 1,
         restaurant: restaurantName,
-        details: im['details'] ?? '',
-        image: im['image'] ?? '',
+        details:    im['details']    ?? '',
+        image:      im['image']      ?? '',
       ));
     }
   }
 
-  /// After a failed search, re-announce which step we're on.
+  // ── Reset to tab step ──────────────────────────────────────────────────────
   Future<void> _resetToTabStep(LanguageProvider lp) async {
     if (!mounted) return;
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
@@ -512,7 +437,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
     );
   }
 
-  // ── Navigation helpers ─────────────────────────────────────────────────────
+  // ── Navigation ─────────────────────────────────────────────────────────────
   void _navigateToTrack(String orderId, LanguageProvider lp) {
     _shouldListen = false;
     if (mounted) {
@@ -541,15 +466,12 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // BUILD
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── BUILD ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final lp = Provider.of<LanguageProvider>(context);
-    final audio = Provider.of<AppAudioProvider>(context);
+    final lp         = Provider.of<LanguageProvider>(context);
     const primaryRed = Color(0xFFD32F2F);
-    final user = FirebaseAuth.instance.currentUser;
+    final user       = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -560,10 +482,8 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
       child: Scaffold(
         backgroundColor: Colors.grey[50],
         appBar: AppBar(
-          title: Text(
-            lp.getText('order_history'),
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          title: Text(lp.getText('order_history'),
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           backgroundColor: primaryRed,
           foregroundColor: Colors.white,
           elevation: 0,
@@ -572,11 +492,10 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
             indicatorColor: Colors.white,
             indicatorWeight: 3,
             onTap: (index) {
-              // Manual tap: switch step context so voice still works
               setState(() {
                 _voiceStep = index == 0
-                    ? _VoiceStep.awaitingActiveOrderName
-                    : _VoiceStep.awaitingPastOrderName;
+                    ? _VoiceStep.awaitingActiveOrderIndex
+                    : _VoiceStep.awaitingPastOrderIndex;
               });
             },
             tabs: [
@@ -587,51 +506,48 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         ),
         body: Column(
           children: [
-            // ── Voice-step hint banner ──────────────────────────────────────
-            _VoiceStepBanner(step: _voiceStep, lp: lp),
-
-            // ── Tab content ────────────────────────────────────────────────
+            // ✅ Only voice hint rebuilds when audio changes
+            Consumer<AppAudioProvider>(
+              builder: (_, audio, __) =>
+                  _VoiceStepBanner(step: _voiceStep, lp: lp, audio: audio),
+            ),
             Expanded(
               child: TabBarView(
                 controller: _tabController,
                 children: [
                   _buildOrderList(
                     DatabaseService().getActiveOrders(user.uid),
-                    primaryRed,
-                    true,
-                    lp,
+                    primaryRed, true, lp,
                   ),
                   _buildOrderList(
                     DatabaseService().getPastOrders(user.uid),
-                    primaryRed,
-                    false,
-                    lp,
+                    primaryRed, false, lp,
                   ),
                 ],
               ),
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
-          backgroundColor: audio.isListening ? Colors.green : primaryRed,
-          onPressed: () {
-            if (!audio.speech.isListening && !_isProcessing) {
-              _shouldListen = true;
-              _startListening(lp);
-            }
-          },
-          child: Icon(
-            audio.isListening ? Icons.graphic_eq : Icons.mic,
-            color: Colors.white,
+        floatingActionButton: Consumer<AppAudioProvider>(
+          builder: (_, audio, __) => FloatingActionButton(
+            backgroundColor: audio.isListening ? Colors.green : primaryRed,
+            onPressed: () {
+              if (!audio.speech.isListening && !_isProcessing) {
+                _shouldListen = true;
+                _startListening(lp);
+              }
+            },
+            child: Icon(
+              audio.isListening ? Icons.graphic_eq : Icons.mic,
+              color: Colors.white,
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Order list (shared by both tabs)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── Order list ─────────────────────────────────────────────────────────────
   Widget _buildOrderList(
       Stream<QuerySnapshot> stream,
       Color accent,
@@ -649,9 +565,8 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         }
 
         final filteredDocs = snapshot.data!.docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final status =
-          (data['status'] ?? '').toString().toLowerCase().trim();
+          final data   = doc.data() as Map<String, dynamic>;
+          final status = (data['status'] ?? '').toString().toLowerCase().trim();
           return isActive
               ? status != 'delivered' && status != 'cancelled'
               : status == 'delivered';
@@ -662,8 +577,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.receipt_long_outlined,
-                    size: 64, color: Colors.grey[300]),
+                Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey[300]),
                 const SizedBox(height: 16),
                 Text(lp.getText('no_orders'),
                     style: TextStyle(color: Colors.grey[600])),
@@ -672,70 +586,69 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
           );
         }
 
-        return ListView(
+        return ListView.builder(
           padding: const EdgeInsets.all(16),
-          children: filteredDocs.map((doc) {
+          itemCount: filteredDocs.length,
+          itemBuilder: (context, index) {
+            final doc  = filteredDocs[index];
             final data = doc.data() as Map<String, dynamic>;
             return _buildOrderCard(
-              context: context,
-              orderId: doc.id,
-              data: data,
-              accent: accent,
+              context:  context,
+              orderId:  doc.id,
+              data:     data,
+              index:    index + 1,
+              accent:   accent,
               isActive: isActive,
-              lp: lp,
+              lp:       lp,
             );
-          }).toList(),
+          },
         );
       },
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Order card
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── Order card ─────────────────────────────────────────────────────────────
   Widget _buildOrderCard({
     required BuildContext context,
     required String orderId,
     required Map<String, dynamic> data,
+    required int index,
     required Color accent,
     required bool isActive,
     required LanguageProvider lp,
   }) {
     final audio = Provider.of<AppAudioProvider>(context, listen: false);
-    final cart = Provider.of<CartProvider>(context, listen: false);
+    final cart  = Provider.of<CartProvider>(context, listen: false);
 
-    final String restaurant =
-        data['restaurantName'] ?? lp.getText('unknown_restaurant');
-    final String status = data['status'] ?? "Pending";
-    final String price =
-        "${(data['totalPrice'] ?? 0).toStringAsFixed(2)} EGP";
-    final String date = data['timestamp'] != null
-        ? DateFormat('MMM d, yyyy')
-        .format((data['timestamp'] as Timestamp).toDate())
+    final String restaurant = data['restaurantName'] ?? lp.getText('unknown_restaurant');
+    final String status     = data['status'] ?? "Pending";
+    final String price      = "${(data['totalPrice'] ?? 0).toStringAsFixed(2)} EGP";
+    final String date       = data['timestamp'] != null
+        ? DateFormat('MMM d, yyyy').format((data['timestamp'] as Timestamp).toDate())
         : lp.getText('recently');
 
-    Color statusColor;
+    Color  statusColor;
     String statusText;
     switch (status.toLowerCase()) {
       case 'preparing':
         statusColor = Colors.orange;
-        statusText = lp.getText('status_preparing');
+        statusText  = lp.getText('status_preparing');
         break;
       case 'delivered':
         statusColor = Colors.green;
-        statusText = lp.getText('status_delivered');
+        statusText  = lp.getText('status_delivered');
         break;
       case 'cancelled':
         statusColor = Colors.red;
-        statusText = lp.getText('status_cancelled');
+        statusText  = lp.getText('status_cancelled');
         break;
       case 'on the way':
         statusColor = Colors.blue;
-        statusText = lp.getText('status_on_way');
+        statusText  = lp.getText('status_on_way');
         break;
       default:
         statusColor = Colors.grey;
-        statusText = status;
+        statusText  = status;
     }
 
     return Card(
@@ -749,8 +662,8 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         onTap: () {
           audio.speak(
             lp.isEnglish
-                ? "Your order from $restaurant is currently $statusText"
-                : "طلبك من $restaurant حالته حالياً هي $statusText",
+                ? "Order $index: $restaurant is currently $statusText."
+                : "الطلب $index: $restaurant حالته حالياً هي $statusText.",
             lp.isEnglish ? "en-US" : "ar-SA",
           );
         },
@@ -759,21 +672,22 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // ── Header row ────────────────────────────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(restaurant,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 17)),
+                      // ✅ Show order number for blind user reference
+                      Text(
+                        "Order $index — $restaurant",
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 17),
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         "${(data['items'] as List).length} ${lp.getText('items_label')} • $date",
-                        style:
-                        const TextStyle(color: Colors.grey, fontSize: 13),
+                        style: const TextStyle(color: Colors.grey, fontSize: 13),
                       ),
                     ],
                   ),
@@ -785,16 +699,13 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                 ],
               ),
               const Divider(height: 30),
-              // ── Status + action row ───────────────────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Status dot + label
                   Row(
                     children: [
                       Container(
-                        width: 8,
-                        height: 8,
+                        width: 8, height: 8,
                         decoration: BoxDecoration(
                             color: statusColor, shape: BoxShape.circle),
                       ),
@@ -806,30 +717,22 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                               fontSize: 13)),
                     ],
                   ),
-
-                  // Track / Reorder button
                   if (isActive)
                     ElevatedButton(
                       onPressed: () {
                         _shouldListen = false;
                         audio.speak(
-                          lp.isEnglish
-                              ? "Opening tracking."
-                              : "جاري فتح التتبع.",
+                          lp.isEnglish ? "Opening tracking." : "جاري فتح التتبع.",
                           lp.isEnglish ? "en-US" : "ar-SA",
                         );
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                TrackOrderScreen(orderId: orderId),
-                          ),
+                              builder: (_) => TrackOrderScreen(orderId: orderId)),
                         ).then((_) {
                           _shouldListen = true;
                           _isProcessing = false;
-                          final l = Provider.of<LanguageProvider>(context,
-                              listen: false);
-                          _speakIntro(l);
+                          _speakIntro(lp);
                         });
                       },
                       style: ElevatedButton.styleFrom(
@@ -845,37 +748,31 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                       onPressed: () {
                         audio.speak(
                           lp.isEnglish
-                              ? "Adding items to your cart."
-                              : "تمت إضافة الطلب إلى السلة.",
+                              ? "Adding order $index to your cart."
+                              : "تمت إضافة الطلب $index إلى السلة.",
                           lp.isEnglish ? "en-US" : "ar-SA",
                         );
-                        final List<dynamic> orderItemsData =
-                            data['items'] ?? [];
+                        final List<dynamic> orderItemsData = data['items'] ?? [];
                         for (var itemMap in orderItemsData) {
                           cart.addItem(CartItem(
-                            id: DateTime.now().millisecondsSinceEpoch
-                                .toString() +
+                            id:         DateTime.now().millisecondsSinceEpoch.toString() +
                                 (itemMap['name'] ?? ""),
-                            name: itemMap['name'] ?? "Unknown",
-                            price: (itemMap['price'] as num?)?.toDouble() ??
-                                0.0,
-                            quantity: itemMap['quantity'] ?? 1,
+                            name:       itemMap['name']     ?? "Unknown",
+                            price:      (itemMap['price'] as num?)?.toDouble() ?? 0.0,
+                            quantity:   itemMap['quantity'] ?? 1,
                             restaurant: restaurant,
-                            details: itemMap['details'] ?? "",
-                            image: itemMap['image'] ?? "",
+                            details:    itemMap['details']  ?? "",
+                            image:      itemMap['image']    ?? "",
                           ));
                         }
                         _shouldListen = false;
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                              builder: (_) => const CartScreen()),
+                          MaterialPageRoute(builder: (_) => const CartScreen()),
                         ).then((_) {
                           _shouldListen = true;
                           _isProcessing = false;
-                          final l = Provider.of<LanguageProvider>(context,
-                              listen: false);
-                          _speakIntro(l);
+                          _speakIntro(lp);
                         });
                       },
                       style: OutlinedButton.styleFrom(
@@ -896,18 +793,21 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Small banner that shows the user which voice step is active
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Voice step banner ──────────────────────────────────────────────────────
 class _VoiceStepBanner extends StatelessWidget {
   final _VoiceStep step;
   final LanguageProvider lp;
+  final AppAudioProvider audio;
 
-  const _VoiceStepBanner({required this.step, required this.lp});
+  const _VoiceStepBanner({
+    required this.step,
+    required this.lp,
+    required this.audio,
+  });
 
   @override
   Widget build(BuildContext context) {
-    String message;
+    String  message;
     IconData icon;
 
     switch (step) {
@@ -917,16 +817,24 @@ class _VoiceStepBanner extends StatelessWidget {
             : 'قل "الطلبات النشطة" أو "الطلبات السابقة"';
         icon = Icons.swap_horiz_rounded;
         break;
-      case _VoiceStep.awaitingActiveOrderName:
+      case _VoiceStep.awaitingActiveOrderIndex:
         message = lp.isEnglish
-            ? 'Say the restaurant name to track'
-            : 'قل اسم المطعم للتتبع';
+            ? audio.lastWords.isNotEmpty
+            ? audio.lastWords
+            : 'Say "order 1", "order 2"... to track'
+            : audio.lastWords.isNotEmpty
+            ? audio.lastWords
+            : 'قل "طلب 1" أو "طلب 2" للتتبع';
         icon = Icons.location_on_outlined;
         break;
-      case _VoiceStep.awaitingPastOrderName:
+      case _VoiceStep.awaitingPastOrderIndex:
         message = lp.isEnglish
-            ? 'Say the restaurant name to reorder'
-            : 'قل اسم المطعم لإعادة الطلب';
+            ? audio.lastWords.isNotEmpty
+            ? audio.lastWords
+            : 'Say "order 1", "order 2"... to reorder'
+            : audio.lastWords.isNotEmpty
+            ? audio.lastWords
+            : 'قل "طلب 1" أو "طلب 2" لإعادة الطلب';
         icon = Icons.replay_rounded;
         break;
     }
@@ -948,6 +856,11 @@ class _VoiceStepBanner extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
+          ),
+          Icon(
+            audio.isListening ? Icons.graphic_eq : Icons.mic_none,
+            size: 16,
+            color: audio.isListening ? Colors.green : Colors.grey,
           ),
         ],
       ),

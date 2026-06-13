@@ -165,7 +165,20 @@ class _MenuState extends State<Menu> {
       }
     }
   }
-
+  String _matchCategory(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
+    for (final c in categories) {
+      final cLower = c.toLowerCase();
+      if (cleaned == cLower ||
+          cleaned == '${cLower}s' ||          // plural
+          cLower == '${cleaned}s' ||          // singular -> plural
+          cleaned.contains(cLower) ||
+          cLower.contains(cleaned)) {
+        return c;
+      }
+    }
+    return "All";
+  }
   // ─────────────────────────────────────────
   // PERSISTENT LISTEN LOOP
   // ─────────────────────────────────────────
@@ -182,7 +195,7 @@ class _MenuState extends State<Menu> {
         debugPrint("USER SAID (Menu): $text");
 
         // ── Route through Rasa NLU ──────────────────────────────
-        final aiResponse = await AIService.sendMessage(text);
+        final aiResponse = await AIService.sendMessage(text, screen: "menu");
         final command = (aiResponse["command"] ?? "unknown").toString();
         final value   = (aiResponse["value"]   ?? "").toString().trim();
         debugPrint("RASA COMMAND (Menu): $command | VALUE: $value");
@@ -229,20 +242,23 @@ class _MenuState extends State<Menu> {
             break;
         // Category filters
           case "filter_category":
-            final cat = value.isNotEmpty ? value : "All";
+            final raw = value.isNotEmpty ? value : "All";
+            final cat = _matchCategory(raw);
+
             setState(() {
               selectedCategory = cat;
               _filterMenu();
             });
+
             await audio.speak(
               lp.isEnglish
                   ? "Showing $cat."
                   : "عرض ${_translateCategory(cat)}.",
               lp.isEnglish ? "en-US" : "ar-SA",
             );
+
             await _speakMenuItems(displayedMenu);
             break;
-
         // Search menu
           case "search_menu":
             setState(() {
@@ -265,7 +281,9 @@ class _MenuState extends State<Menu> {
               lp.isEnglish ? "Going back." : "جاري الرجوع.",
               lp.isEnglish ? "en-US" : "ar-SA",
             );
+
             await audio.stop();
+            await Future.delayed(const Duration(milliseconds: 300));
             if (mounted) Navigator.pop(context);
             return;
 
@@ -279,9 +297,7 @@ class _MenuState extends State<Menu> {
         }
 
         _isProcessing = false;
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (_shouldListen && mounted) _startListening();
-        });
+
       },
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -306,15 +322,24 @@ class _MenuState extends State<Menu> {
   }
 
   void _filterMenu() {
-    setState(() {
-      displayedMenu = fullMenu.where((item) {
-        final matchesCategory =
-            selectedCategory == "All" || item.category == selectedCategory;
-        final matchesSearch =
-        item.name.toLowerCase().contains(searchQuery.toLowerCase());
-        return matchesCategory && matchesSearch;
-      }).toList();
-    });
+    displayedMenu = fullMenu.where((item) {
+      final matchesCategory =
+          selectedCategory.trim().toLowerCase() == "all" ||
+              item.category.trim().toLowerCase() ==
+                  selectedCategory.trim().toLowerCase();
+
+      final matchesSearch =
+      item.name.toLowerCase().contains(searchQuery.toLowerCase());
+
+      return matchesCategory && matchesSearch;
+    }).toList();
+
+    debugPrint("SELECTED CATEGORY = '$selectedCategory'");
+    debugPrint("RESULTS = ${displayedMenu.length}");
+
+    for (final item in displayedMenu) {
+      debugPrint("FOUND ITEM: ${item.name}");
+    }
   }
   MenuItemModel? _findMenuItem(List<MenuItemModel> items, String value) {
     final normalizedValue = _normalize(value);

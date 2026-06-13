@@ -99,8 +99,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
         print("USER SAID: $text");
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "otp");
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
 
         print("AI COMMAND: $command");
 
@@ -172,6 +172,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
             );
             break;
 
+          case "go_back":
+            _shouldListen = false;
+            await audio.stop();
+            await Future.delayed(const Duration(milliseconds: 300));
+            if (mounted) Navigator.pop(context);
+            break;
+
+          case "read_commands":
+            await audio.speak(
+              lp.isEnglish
+                  ? "Say the 6-digit code, verify to submit, "
+                  "re-enter to clear, read code to hear what you entered, "
+                  "or go back."
+                  : "قل الرمز المكون من 6 أرقام، تحقق للإرسال، "
+                  "أعد الإدخال لمسحه، اقرأ الرمز لسماعه، أو ارجع.",
+              lp.isEnglish ? "en-US" : "ar-SA",
+            );
+            break;
+
         // ── Fallback ───────────────────────────────────────────
           default:
             await audio.speak(
@@ -186,7 +205,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
         _isProcessing = false;
 
-      },
+          },
       // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -473,7 +492,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 10),
                 GestureDetector(
-                  onTap: () => print("Resending..."),
+                  onTap: () async {
+                    final audio2 = Provider.of<AppAudioProvider>(context, listen: false);
+                    final lp2 = Provider.of<LanguageProvider>(context, listen: false);
+                    await audio2.speak(
+                      lp2.isEnglish
+                          ? "Resend is not available yet. Please go back and try signing in again."
+                          : "إعادة الإرسال غير متاحة حالياً. من فضلك ارجع وحاول مرة أخرى.",
+                      lp2.isEnglish ? "en-US" : "ar-SA",
+                    );
+                  },
                   child: Text(
                     lp.getText('resend_btn'),
                     style: const TextStyle(

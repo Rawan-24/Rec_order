@@ -13,13 +13,20 @@ class AIService {
   static Future<Map<String, dynamic>> sendMessage(
       String text, {
         String sender = 'user1',
+        String? screen,
       }) async {
     try {
+      final payload = {
+        'text': text,
+        'sender': sender,
+        if (screen != null && screen.trim().isNotEmpty) 'screen': screen.trim(),
+      };
+
       final res = await http
           .post(
         Uri.parse('$_base/ask'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'text': text, 'sender': sender}),
+        body: jsonEncode(payload),
       )
           .timeout(const Duration(seconds: 30));
 
@@ -28,27 +35,42 @@ class AIService {
         final replies = body['replies'] as List<dynamic>? ?? [];
 
         if (replies.isNotEmpty) {
-          // Spread the full reply so extra fields like icon_type pass through
           final reply = Map<String, dynamic>.from(replies[0] as Map);
-          debugPrint('FULL REPLY: $reply');        // ← add this
-          debugPrint('FULL BODY: $body');          // ← add this
+
+          debugPrint('FULL REPLY: $reply');
+          debugPrint('FULL BODY: $body');
+
+          String _clean(dynamic v) =>
+              (v ?? '').toString().replaceAll(RegExp(r'[^a-z_]'), '').trim();
+          String _cleanValue(dynamic v) => (v ?? '')
+              .toString()
+              .replaceAll(RegExp(r'[{}\[\]"]'), '')
+              .replaceAll(RegExp(r',\s*$'), '')
+              .trim();
+          final command = _clean(reply['command'])
+              .isNotEmpty ? _clean(reply['command'])
+              : _clean(body['intent']).isNotEmpty ? _clean(body['intent'])
+              : _clean(reply['text']).isNotEmpty ? _clean(reply['text'])
+              : 'unknown';
+
           return {
             ...reply,
-            // Normalise: text-only replies like {"text":"sign_in"} become
-            // {"command":"sign_in"} so every screen reads response['command']
-            'command': body['intent'] ?? reply['command'] ?? reply['text'] ?? 'unknown', // ← body['intent'] first
-            'value':   reply['value']   ?? '',
-            'intent':  body['intent']   ?? 'unknown',
-            'lang':    body['lang']     ?? 'en',
+            'command': command,
+            'text': _clean(reply['text']),
+            'value': _cleanValue(reply['value']),
+            'intent': _clean(body['intent']),
+            'confidence': body['confidence'] ?? 0.0,
+            'lang': body['lang'] ?? 'en',
           };
         }
       }
 
       debugPrint('AIService: bad status ${res.statusCode}');
-      return {'command': 'unknown', 'value': ''};
+      return {'command': 'unknown', 'value': '', 'intent': 'unknown'};
     } on Exception catch (e) {
       debugPrint('AIService error: $e');
-      return {'command': 'unknown', 'value': ''};
+      return {'command': 'unknown', 'value': '', 'intent': 'unknown'};
     }
   }
+
 }

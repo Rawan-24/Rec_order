@@ -39,7 +39,8 @@ class _SignUpPageState extends State<SignUpPage> {
       // Register phone controller so AudioProvider can also write to it
       audio.setPhoneController(_phoneController);
 
-
+      await audio.stop();
+      await Future.delayed(const Duration(milliseconds: 500)); // ✅ add this
       await audio.initSpeech();
       await _speakIntro(lp);
     });
@@ -88,8 +89,8 @@ class _SignUpPageState extends State<SignUpPage> {
 
         print("USER SAID: $text");
 
-        final response = await AIService.sendMessage(text);
-        final command = (response['command'] ?? "unknown").toString();
+        final response = await AIService.sendMessage(text, screen: "sign_up");
+        final command = (response['command'] ?? response['text'] ?? "unknown").toString();
 
         print("AI COMMAND: $command");
 
@@ -189,6 +190,27 @@ class _SignUpPageState extends State<SignUpPage> {
             );
             break;
 
+          case "go_back":
+            _shouldListen = false;
+            await audio.stop();
+            await Future.delayed(const Duration(milliseconds: 300));
+
+            if (mounted) Navigator.pop(context);
+            break;
+
+          case "read_commands":
+            await audio.speak(
+              lp.isEnglish
+                  ? "You can say: your full name, your phone number, "
+                  "sign up, sign in, re-enter name, re-enter phone, "
+                  "read my name, or read my number."
+                  : "يمكنك قول: اسمك الكامل، رقم هاتفك، سجل، "
+                  "تسجيل الدخول، أعد إدخال الاسم، أعد إدخال الرقم، "
+                  "اقرأ اسمي، أو اقرأ رقمي.",
+              lp.isEnglish ? "en-US" : "ar-SA",
+            );
+            break;
+
         // ── Fallback ───────────────────────────────────────────
           default:
             await audio.speak(
@@ -202,9 +224,12 @@ class _SignUpPageState extends State<SignUpPage> {
         }
 
         _isProcessing = false;
-
-
-      },
+        // ✅ Always restart mic after TTS finishes
+        if (mounted && _shouldListen) {
+          await Future.delayed(const Duration(milliseconds: 300));
+          _startListening(lp);
+        }
+          },
       // ── onError: retry on silence / no-match ──────────────────
       onError: (errorMsg) {
         // AudioProvider handles error_no_match automatically.
@@ -486,8 +511,8 @@ class _SignUpPageState extends State<SignUpPage> {
                     lp.isEnglish ? TextAlign.left : TextAlign.right,
                     decoration: InputDecoration(
                       hintText: lp.isEnglish
-                          ? "+966XXXXXXXXX"
-                          : "XXXXXXXXX٩٦٦+",
+                          ? "+20XXXXXXXXXX"
+                          : "XXXXXXXXXX02+",
                       prefixIcon: const Icon(Icons.phone),
                       suffixIcon: _phoneController.text.isNotEmpty
                           ? IconButton(
