@@ -185,18 +185,29 @@ class AppAudioProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     try {
       await _ttsService.speak(text, langCode);
-      await completer.future.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => debugPrint('TTS timeout - continuing'),
-      );
-      await Future.delayed(const Duration(milliseconds: 200));
+
+      // ✅ Race between completer and a backup timer
+      // whichever fires first wins
+      await Future.any([
+        completer.future,
+        Future.delayed(const Duration(seconds: 2), () {
+          debugPrint("TTS backup timer fired — forcing continue");
+        }),
+      ]);
+
+      await Future.delayed(const Duration(milliseconds: 300));
     } catch (e) {
       debugPrint('TTS ERROR: $e');
     } finally {
       if (_activeSpeechCompleter == completer) {
         _activeSpeechCompleter = null;
       }
-      _finishSpeakingIfCurrent(token);
+      // ✅ Always force _isSpeaking = false regardless of token
+      _isSpeaking = false;
+      notifyListeners();
+      if (_isAlwaysOn && _currentOnResult != null) {
+        _scheduleRestart(500);
+      }
     }
   }
 

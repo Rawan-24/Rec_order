@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 class TtsService {
@@ -23,9 +24,20 @@ class TtsService {
     await _tts.setVolume(_volume);
     await _tts.setPitch(_pitch);
 
-    // ✅ Wire once here, not in every speak() call
+    // ✅ Wire ALL handlers — Android sometimes fires cancel instead of complete
     _tts.setCompletionHandler(() {
+      debugPrint("TTS: completionHandler fired");
       _onComplete?.call();
+    });
+
+    _tts.setCancelHandler(() {
+      debugPrint("TTS: cancelHandler fired");
+      _onComplete?.call(); // treat cancel as done
+    });
+
+    _tts.setErrorHandler((msg) {
+      debugPrint("TTS: errorHandler fired: $msg");
+      _onComplete?.call(); // treat error as done
     });
 
     _initialized = true;
